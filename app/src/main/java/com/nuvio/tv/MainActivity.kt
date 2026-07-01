@@ -345,16 +345,8 @@ class MainActivity : ComponentActivity() {
             }
             var profilePinStates by remember { mutableStateOf<Map<Int, Boolean>>(emptyMap()) }
 
-            // Auto-sign-in with email/password
-            LaunchedEffect(Unit) {
-                delay(500)
-                if (authManager.authState.value !is AuthState.FullAccount) {
-                    Log.d("MainActivity", "Auto signing in with email...")
-                    authManager.signInWithEmail("casaduartes292@gmail.com", "C.duartes07")
-                        .onSuccess { Log.d("MainActivity", "Auto sign in success!") }
-                        .onFailure { Log.e("MainActivity", "Auto sign in failed", it) }
-                }
-            }
+            // REMOVED: hardcoded email/password auto-login (security)
+            // User must log in via the EmailLoginScreen UI
             // Also listen for auth state changes
             LaunchedEffect(authState) {
                 Log.d("MainActivity", "Auth state changed to: $authState")
