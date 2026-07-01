@@ -1,7 +1,12 @@
 package com.nuvio.tv.ui.screens.iptv
 
+import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.nuvio.tv.core.server.DeviceIpAddress
+import com.nuvio.tv.core.server.IptvConfigServer
+import com.nuvio.tv.core.server.IptvConfigState
+import com.nuvio.tv.core.server.PendingIptvChange
 import com.nuvio.tv.domain.model.EpgProgram
 import com.nuvio.tv.domain.model.TvChannel
 import com.nuvio.tv.domain.repository.IptvRepository
@@ -25,8 +30,12 @@ data class IptvUiState(
     val error: String? = null,
     val isConfigured: Boolean = false,
     val currentPrograms: Map<String, EpgProgram> = emptyMap(),
-    val selectedPrograms: List<EpgProgram> = emptyList(), // EPG do canal focado
-    val focusedChannelId: String? = null
+    val selectedPrograms: List<EpgProgram> = emptyList(),
+    val focusedChannelId: String? = null,
+    // QR server state
+    val qrServerActive: Boolean = false,
+    val qrServerUrl: String? = null,
+    val qrServerPort: Int = 8082
 )
 
 sealed class IptvEvent {
@@ -42,7 +51,8 @@ private const val FAVORITES_GROUP = "⭐ Favoritos"
 
 @HiltViewModel
 class IptvViewModel @Inject constructor(
-    private val repository: IptvRepository
+    private val repository: IptvRepository,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context
 ) : ViewModel() {
 
     private val selectedGroup = MutableStateFlow<String?>(null)
@@ -52,6 +62,11 @@ class IptvViewModel @Inject constructor(
     private val _updateTick = MutableStateFlow(0L)
     private val _focusedChannelId = MutableStateFlow<String?>(null)
     private val _selectedPrograms = MutableStateFlow<List<EpgProgram>>(emptyList())
+    private val _qrServerActive = MutableStateFlow(false)
+    private val _qrServerUrl = MutableStateFlow<String?>(null)
+    private val _qrServerPort = MutableStateFlow(8082)
+
+    private var configServer: IptvConfigServer? = null
 
     val uiState: StateFlow<IptvUiState> = combine(
         combine(
@@ -77,18 +92,24 @@ class IptvViewModel @Inject constructor(
 
             Triple(filtered, allGroups, group)
         },
-        _selectedPrograms
-    ) { (channels, allGroups, group), epg ->
+        _selectedPrograms,
+        _qrServerActive,
+        _qrServerUrl,
+        _qrServerPort
+    ) { (channels, allGroups, group), epg, qrActive, qrUrl, qrPort ->
         IptvUiState(
             isLoading = false,
             channels = channels,
             groups = allGroups,
             selectedGroup = group,
             favorites = _favorites.value,
-            isConfigured = true, // channels list non-empty implies configured
+            isConfigured = true,
             currentPrograms = _currentPrograms.value,
             selectedPrograms = epg,
-            focusedChannelId = _focusedChannelId.value
+            focusedChannelId = _focusedChannelId.value,
+            qrServerActive = qrActive,
+            qrServerUrl = qrUrl,
+            qrServerPort = qrPort
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), IptvUiState())
 
@@ -164,6 +185,44 @@ class IptvViewModel @Inject constructor(
             repository.saveUrls(m3uUrl, epgUrl)
             refresh()
         }
+    }
+
+    fun startQrMode(ip: String) {
+        stopQrMode()
+        val port = 8082
+        configServer = IptvConfigServer.startOnAvailablePort(
+            context = appContext,
+            currentConfigProvider = {
+                IptvConfigState(
+                    m3uUrl = runCatching { kotlinx.coroutines.runBlocking { repository.getM3uUrl() } }.getOrNull().orEmpty(),
+                    epgUrl = runCatching { kotlinx.coroutines.runBlocking { repository.getEpgUrl() } }.getOrNull().orEmpty()
+                )
+            },
+            onChangeProposed = { change ->
+                viewModelScope.launch {
+                    repository.saveUrls(change.m3uUrl, change.epgUrl)
+                    configServer?.confirmChange(change.id)
+                    refresh()
+                }
+            }
+        )
+        if (configServer != null) {
+            _qrServerActive.value = true
+            _qrServerUrl.value = "http://$ip:$port"
+            _qrServerPort.value = port
+        }
+    }
+
+    fun stopQrMode() {
+        configServer?.stop()
+        configServer = null
+        _qrServerActive.value = false
+        _qrServerUrl.value = null
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        stopQrMode()
     }
 
     private fun refresh() {

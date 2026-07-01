@@ -428,6 +428,64 @@ class AccountViewModel @Inject constructor(
         }
     }
 
+    // ── Local QR login server (TvLoginServer) ──
+
+    private var tvLoginServer: com.nuvio.tv.core.server.TvLoginServer? = null
+
+    fun startLocalQrLogin() {
+        stopLocalQrLogin()
+        val ip = com.nuvio.tv.core.server.DeviceIpAddress.get(context) ?: run {
+            _uiState.update { it.copy(error = context.getString(com.nuvio.tv.R.string.error_network_required)) }
+            return
+        }
+        val port = 8083
+        val qrUrl = "http://$ip:$port"
+
+        tvLoginServer = com.nuvio.tv.core.server.TvLoginServer.startOnAvailablePort(
+            context = context,
+            authManager = authManager
+        )
+        if (tvLoginServer != null) {
+            tvLoginServer?.setLoginCallback { success, errorMessage ->
+                if (success) {
+                    _uiState.update {
+                        it.copy(localQrServerActive = false, localQrServerUrl = null, localQrServerBitmap = null)
+                    }
+                    viewModelScope.launch {
+                        pullRemoteData().onFailure { e ->
+                            Log.e("AccountViewModel", "localQrLogin: pullRemoteData failed", e)
+                        }
+                        loadConnectedStats()
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(error = errorMessage ?: "Falha ao fazer login")
+                    }
+                }
+            }
+            val qrBitmap = runCatching { com.nuvio.tv.core.qr.QrCodeGenerator.generate(qrUrl, 420, margin = 1) }.getOrNull()
+            _uiState.update {
+                it.copy(
+                    localQrServerActive = true,
+                    localQrServerUrl = qrUrl,
+                    localQrServerBitmap = qrBitmap
+                )
+            }
+        } else {
+            _uiState.update {
+                it.copy(error = "Não foi possível iniciar o servidor de login")
+            }
+        }
+    }
+
+    fun stopLocalQrLogin() {
+        tvLoginServer?.stop()
+        tvLoginServer = null
+        _uiState.update {
+            it.copy(localQrServerActive = false, localQrServerUrl = null, localQrServerBitmap = null)
+        }
+    }
+
     private suspend fun updateEffectiveOwnerId(state: AuthState) {
         val currentUserId = when (state) {
             is AuthState.FullAccount -> state.userId

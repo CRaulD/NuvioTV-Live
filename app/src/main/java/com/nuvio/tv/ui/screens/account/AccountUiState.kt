@@ -55,5 +55,9 @@ data class AccountUiState(
     val qrLoginBitmap: Bitmap? = null,
     val qrLoginStatus: String? = null,
     val qrLoginExpiresAtMillis: Long? = null,
-    val qrLoginPollIntervalSeconds: Int = 3
+    val qrLoginPollIntervalSeconds: Int = 3,
+    // Local QR login server (via TvLoginServer)
+    val localQrServerActive: Boolean = false,
+    val localQrServerUrl: String? = null,
+    val localQrServerBitmap: Bitmap? = null
 )
