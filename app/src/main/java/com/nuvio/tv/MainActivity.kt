@@ -47,6 +47,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -141,7 +142,7 @@ import com.nuvio.tv.ui.components.NuvioScrollDefaults
 import com.nuvio.tv.ui.components.ProfileAvatarCircle
 import com.nuvio.tv.ui.navigation.NuvioNavHost
 import com.nuvio.tv.ui.navigation.Screen
-import com.nuvio.tv.ui.screens.account.AuthQrSignInScreen
+import com.nuvio.tv.ui.screens.account.EmailLoginScreen
 import com.nuvio.tv.ui.screens.addon.EssentialAddonSetupScreen
 import com.nuvio.tv.ui.screens.profile.ProfileSelectionScreen
 import com.nuvio.tv.ui.theme.NuvioComponents
@@ -344,6 +345,21 @@ class MainActivity : ComponentActivity() {
             }
             var profilePinStates by remember { mutableStateOf<Map<Int, Boolean>>(emptyMap()) }
 
+            // Auto-sign-in with email/password
+            LaunchedEffect(Unit) {
+                delay(500)
+                if (authManager.authState.value !is AuthState.FullAccount) {
+                    Log.d("MainActivity", "Auto signing in with email...")
+                    authManager.signInWithEmail("casaduartes292@gmail.com", "C.duartes07")
+                        .onSuccess { Log.d("MainActivity", "Auto sign in success!") }
+                        .onFailure { Log.e("MainActivity", "Auto sign in failed", it) }
+                }
+            }
+            // Also listen for auth state changes
+            LaunchedEffect(authState) {
+                Log.d("MainActivity", "Auth state changed to: $authState")
+            }
+
             LaunchedEffect(authState, profiles) {
                 if (authState is AuthState.FullAccount) {
                     profileSyncService.pullProfileLockStates()
@@ -490,14 +506,16 @@ class MainActivity : ComponentActivity() {
                         return@Surface
                     }
 
+                    val isSignedIn = authState is AuthState.FullAccount
+                    val authLoading = authState is AuthState.Loading
+
                     if (
-                        hasSeenAuthQrOnFirstLaunch == false &&
-                        authState !is AuthState.FullAccount &&
-                        !onboardingCompletedThisSession
+                        !authLoading &&
+                        !isSignedIn
                     ) {
-                        AuthQrSignInScreen(
+                        EmailLoginScreen(
                             onBackPress = { finish() },
-                            onContinue = {
+                            onSignedIn = {
                                 lifecycleScope.launch {
                                     val shouldRunRemoteOnboardingSync =
                                         authManager.authState.value is AuthState.FullAccount
@@ -561,7 +579,7 @@ class MainActivity : ComponentActivity() {
                         return@Surface
                     }
                     val effectiveExperienceMode = mainUiPrefs.experienceMode
-                        ?: if (layoutChosen) ExperienceMode.ADVANCED else null
+                        ?: if (layoutChosen == true) ExperienceMode.ADVANCED else null
                     val needsExperienceSelection = effectiveExperienceMode == null
                     val needsEssentialAddonSetup =
                         effectiveExperienceMode == ExperienceMode.ESSENTIAL &&
@@ -586,7 +604,7 @@ class MainActivity : ComponentActivity() {
 
                     val startDestination = when {
                         needsExperienceSelection -> Screen.ExperienceModeSelection.route
-                        layoutChosen -> Screen.Home.route
+                        layoutChosen == true -> Screen.Home.route
                         else -> Screen.LayoutSelection.route
                     }
                     val navController = rememberNavController()
@@ -643,7 +661,7 @@ class MainActivity : ComponentActivity() {
 
                     // Navigate to content when launched from the Continue Watching channel row.
                     LaunchedEffect(navController) {
-                        if (launchContentId != null && launchContentType != null && layoutChosen) {
+                        if (launchContentId != null && launchContentType != null && layoutChosen == true) {
                             navController.navigate(
                                 Screen.Detail.createRoute(
                                     itemId = launchContentId,
@@ -678,6 +696,7 @@ class MainActivity : ComponentActivity() {
                             add(Screen.Home.route)
                             add(Screen.Search.route)
                             add(Screen.Library.route)
+                            add(Screen.Iptv.route)
                             add(Screen.Settings.route)
                             if (discoverLocation == DiscoverLocation.IN_SIDEBAR) {
                                 add(Screen.Discover.route)
@@ -689,12 +708,14 @@ class MainActivity : ComponentActivity() {
                     val strNavDiscover = stringResource(R.string.nav_discover)
                     val strNavSearch = stringResource(R.string.nav_search)
                     val strNavLibrary = stringResource(R.string.nav_library)
+                    val strNavIptv = stringResource(R.string.nav_iptv)
                     val strNavSettings = stringResource(R.string.nav_settings)
                     val drawerItems = remember(
                         strNavHome,
                         strNavDiscover,
                         strNavSearch,
                         strNavLibrary,
+                        strNavIptv,
                         strNavSettings,
                         discoverLocation
                     ) {
@@ -727,6 +748,13 @@ class MainActivity : ComponentActivity() {
                                     route = Screen.Library.route,
                                     label = strNavLibrary,
                                     iconRes = R.raw.sidebar_library
+                                )
+                            )
+                            add(
+                                DrawerItem(
+                                    route = Screen.Iptv.route,
+                                    label = strNavIptv,
+                                    icon = Icons.Default.Tv
                                 )
                             )
                             add(
@@ -789,7 +817,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    if (AppFeaturePolicy.inAppUpdatesEnabled && !BuildConfig.IS_DEBUG_BUILD) {
+                    if (AppFeaturePolicy.inAppUpdatesEnabled) {
                         val updateViewModel: UpdateViewModel = hiltViewModel(this@MainActivity)
                         val updateState by updateViewModel.uiState.collectAsState()
                         UpdatePromptDialog(

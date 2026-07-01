@@ -1,5 +1,6 @@
 package com.nuvio.tv.data.local
 
+import android.util.Log
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -15,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -704,6 +706,16 @@ class PlayerSettingsDataStore @Inject constructor(
                     prefs[migrationTargetBufferSizeReducedDoneKey] = true
                 }
 
+                // Legacy integer→float migration: remove old int-only keys that
+                // cause ClassCastException on profiles created before the float
+                // rename (old: intPreferencesKey("next_episode_threshold_percent"),
+                // even older: floatPreferencesKey same name → crash on read).
+                // The v2 float keys are written by save(), so legacy can go.
+                if (prefs.contains(nextEpisodeThresholdPercentLegacyKey) || prefs.contains(nextEpisodeThresholdMinutesBeforeEndLegacyKey)) {
+                    prefs.remove(nextEpisodeThresholdPercentLegacyKey)
+                    prefs.remove(nextEpisodeThresholdMinutesBeforeEndLegacyKey)
+                }
+
                 val min = prefs[minBufferMsKey]
                 val max = prefs[maxBufferMsKey]
                 if (min != null && max != null && max < min) prefs[maxBufferMsKey] = min
@@ -878,14 +890,14 @@ class PlayerSettingsDataStore @Inject constructor(
                 } ?: NextEpisodeThresholdMode.PERCENTAGE,
                 nextEpisodeThresholdPercent = normalizeHalfStep(
                     value = prefs[nextEpisodeThresholdPercentKey]
-                        ?: prefs[nextEpisodeThresholdPercentLegacyKey]?.toFloat()
+                        ?: runCatching { prefs[nextEpisodeThresholdPercentLegacyKey]?.toFloat() }.getOrNull()
                         ?: 99f,
                     min = 97f,
                     max = 100f
                 ),
                 nextEpisodeThresholdMinutesBeforeEnd = normalizeHalfStep(
                     value = prefs[nextEpisodeThresholdMinutesBeforeEndKey]
-                        ?: prefs[nextEpisodeThresholdMinutesBeforeEndLegacyKey]?.toFloat()
+                        ?: runCatching { prefs[nextEpisodeThresholdMinutesBeforeEndLegacyKey]?.toFloat() }.getOrNull()
                         ?: 2f,
                     min = 0f,
                     max = 3.5f
@@ -949,6 +961,10 @@ class PlayerSettingsDataStore @Inject constructor(
                     retainBackBufferFromKeyframe = prefs[retainBackBufferFromKeyframeKey] ?: false
                 )
             )
+        }
+.catch { e ->
+            Log.e("PlayerSettingsDS", "Failed to read player preferences, using defaults", e)
+            emit(PlayerSettings())
         }
 
     val useLibass: Flow<Boolean> = profileManager.activeProfileId.flatMapLatest { pid ->

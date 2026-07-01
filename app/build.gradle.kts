@@ -100,8 +100,8 @@ android {
         applicationId = "com.nuvio.tv"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1029
-        versionName = "0.7.12-beta"
+        versionCode = 2000
+        versionName = "0.1.0-nuvio-live"
 
         buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${localProperties.getProperty("PARENTAL_GUIDE_API_URL", "")}\"")
         buildConfigField("String", "INTRODB_API_URL", "\"${localProperties.getProperty("INTRODB_API_URL", "")}\"")
@@ -136,9 +136,9 @@ android {
         buildConfigField("String", "PREMIUMIZE_CLIENT_ID", "\"${localProperties.getProperty("PREMIUMIZE_CLIENT_ID", "")}\"")
         buildConfigField("String", "SPONSOR_NAMES", buildConfigString(sponsorNames))
 
-        // In-app updater (GitHub Releases)
-        buildConfigField("String", "GITHUB_OWNER", "\"tapframe\"")
-        buildConfigField("String", "GITHUB_REPO", "\"NuvioTV\"")
+        // In-app updater (GitHub Releases) — NuvioTV-Live fork
+        buildConfigField("String", "GITHUB_OWNER", "\"CRaulD\"")
+        buildConfigField("String", "GITHUB_REPO", "\"NuvioTV-Live\"")
     }
 
     flavorDimensions += "distribution"
@@ -180,7 +180,7 @@ android {
     buildTypes {
         debug {
             signingConfig = signingConfigs.getByName("release")
-            isDebuggable = false
+            isDebuggable = true
             isMinifyEnabled = false
 
             buildConfigField("boolean", "IS_DEBUG_BUILD", "true")
@@ -407,6 +407,11 @@ dependencies {
     // DataStore
     implementation(libs.datastore.preferences)
 
+    // Room
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
+
     // ViewModel
     implementation(libs.lifecycle.viewmodel.compose)
 
@@ -445,7 +450,7 @@ dependencies {
         "libs/lib-decoder-mpegh-release.aar"
     ))
     if (useLocalFfmpegDecoder) {
-        implementation(project(":ffmpeg-decoder-downmix"))
+        // implementation(project(":ffmpeg-decoder-downmix"))
     } else {
         implementation(files("libs/lib-decoder-ffmpeg-release.aar"))
     }

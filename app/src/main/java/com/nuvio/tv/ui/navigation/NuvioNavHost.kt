@@ -1304,5 +1304,59 @@ fun NuvioNavHost(
                 }
             )
         }
+
+        // ── IPTV ──
+        composable(Screen.Iptv.route) {
+            com.nuvio.tv.ui.screens.iptv.IptvScreen(
+                onChannelClick = { channel ->
+                    navController.navigate(
+                        com.nuvio.tv.ui.screens.iptv.IptvPlayerScreen.createRoute(
+                            channelUrl = channel.url,
+                            channelName = channel.name,
+                            channelLogo = channel.logo
+                        )
+                    )
+                },
+                onSetupClick = {
+                    navController.navigate(Screen.IptvSetup.route)
+                }
+            )
+        }
+
+        composable(Screen.IptvSetup.route) {
+            com.nuvio.tv.ui.screens.iptv.IptvSetupScreen(
+                onSave = { navController.popBackStack() }
+            )
+        }
+
+        // ── IPTV Player (reusa rota simples sem argumentos complexos) ──
+        composable(
+            route = com.nuvio.tv.ui.screens.iptv.IptvPlayerScreen.ROUTE,
+            arguments = listOf(
+                navArgument("channelUrl") { type = NavType.StringType },
+                navArgument("channelName") { type = NavType.StringType },
+                navArgument("channelLogo") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val url = backStackEntry.arguments?.getString("channelUrl") ?: return@composable
+            val name = backStackEntry.arguments?.getString("channelName") ?: ""
+            val logo = backStackEntry.arguments?.getString("channelLogo")
+            com.nuvio.tv.ui.screens.iptv.IptvPlayerScreen(
+                channelUrl = url,
+                channelName = name,
+                channelLogo = logo,
+                onBackPress = { navController.popBackStack() },
+                onNavigateToIptv = {
+                    navController.navigate(Screen.Iptv.route) {
+                        popUpTo(Screen.Iptv.route) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
+            )
+        }
     }
 }
