@@ -2774,4 +2774,23 @@
     <string name="profile_default_name">Profile %1$d</string>
     <string name="detail_tmdb_fallback_title">TMDB %1$d</string>
     <string name="collections_editor_tmdb_collection_fallback">TMDB Collection %1$d</string>
+
+    <!-- Iptv / TV ao Vivo -->
+    <string name="iptv_search_placeholder">Search channel or program…</string>
+    <string name="iptv_live">Live</string>
+    <string name="iptv_live_badge">AO VIVO</string>
+    <string name="iptv_schedule">PROGRAMMING</string>
+    <string name="iptv_next_programs">Upcoming programs</string>
+    <string name="iptv_remaining">%1$d min remaining</string>
+    <string name="iptv_minutes_short">min</string>
+    <string name="iptv_navigate">Navigate</string>
+    <string name="iptv_select">Select</string>
+    <string name="iptv_hold_to_favorite">Hold OK to favorite</string>
+    <string name="iptv_menu_navigation">navegação</string>
+    <string name="iptv_favorite_added">★ Added to favorites</string>
+    <string name="iptv_favorite_removed">★ Removed from favorites</string>
+    <string name="iptv_no_schedule">No upcoming programs</string>
+    <string name="iptv_currently_playing">Now playing: %1$s</string>
+    <string name="iptv_next_up">Next up: %1$s</string>
+    <string name="iptv_footer_text">↑↓ %1$s · OK %2$s · segure OK na ⭐ %3$s · Menu %4$s</string>
 </resources>

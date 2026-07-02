@@ -29,6 +29,8 @@ object ThemeColors {
         secondaryVariant = NuvioPrimitives.red600,
         focusRing = NuvioPrimitives.red300,
         focusBackground = Color(0xFF3D1A1A),
+        background = Color(0xFF0F0B0B),
+        backgroundElevated = Color(0xFF1E1515),
         backgroundCard = Color(0xFF241A1A)
     )
 
@@ -57,6 +59,8 @@ object ThemeColors {
         secondaryVariant = NuvioPrimitives.green700,
         focusRing = NuvioPrimitives.green300,
         focusBackground = Color(0xFF1A3D1E),
+        background = Color(0xFF0B0F0B),
+        backgroundElevated = Color(0xFF151E15),
         backgroundCard = Color(0xFF1A241A)
     )
 
@@ -75,6 +79,8 @@ object ThemeColors {
         secondaryVariant = NuvioPrimitives.rose700,
         focusRing = NuvioPrimitives.rose300,
         focusBackground = Color(0xFF3D1A2D),
+        background = Color(0xFF0F0B0D),
+        backgroundElevated = Color(0xFF1E1518),
         backgroundCard = Color(0xFF241A1F)
     )
 

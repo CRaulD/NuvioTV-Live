@@ -32,6 +32,17 @@ data class IptvUiState(
     val currentPrograms: Map<String, EpgProgram> = emptyMap(),
     val selectedPrograms: List<EpgProgram> = emptyList(),
     val focusedChannelId: String? = null,
+    // Focus state (D-pad navigation)
+    val focusZone: FocusZone = FocusZone.LIST,
+    val focusIndex: Int = 0,
+    val lastZoneIndex: Map<FocusZone, Int> = mapOf(
+        FocusZone.SIDEBAR to 0,
+        FocusZone.SEARCH to 0,
+        FocusZone.LIST to 0,
+        FocusZone.EPG to 0
+    ),
+    val searchQuery: String = "",
+    val isSearchActive: Boolean = false,
     // QR server state
     val qrServerActive: Boolean = false,
     val qrServerUrl: String? = null,
@@ -45,6 +56,10 @@ sealed class IptvEvent {
     data object Retry : IptvEvent()
     data class ToggleFavorite(val channelId: String) : IptvEvent()
     data class FocusChannel(val channelId: String?) : IptvEvent()
+    // Focus & search events
+    data class MoveFocus(val zone: FocusZone, val index: Int) : IptvEvent()
+    data class SetSearchQuery(val query: String) : IptvEvent()
+    data object ToggleSearch : IptvEvent()
 }
 
 private const val FAVORITES_GROUP = "⭐ Favoritos"
@@ -65,6 +80,20 @@ class IptvViewModel @Inject constructor(
     private val _qrServerActive = MutableStateFlow(false)
     private val _qrServerUrl = MutableStateFlow<String?>(null)
     private val _qrServerPort = MutableStateFlow(8082)
+    private val _focusZone = MutableStateFlow(FocusZone.LIST)
+    private val _focusIndex = MutableStateFlow(0)
+    private val _searchQuery = MutableStateFlow("")
+    private val _isSearchActive = MutableStateFlow(false)
+    private val _m3uConfigured = MutableStateFlow(false)
+    private var _programsJob: kotlinx.coroutines.Job? = null
+    private val _lastZoneIndex = MutableStateFlow<Map<FocusZone, Int>>(
+        mapOf(
+            FocusZone.SIDEBAR to 0,
+            FocusZone.SEARCH to 0,
+            FocusZone.LIST to 0,
+            FocusZone.EPG to 0
+        )
+    )
 
     private var configServer: IptvConfigServer? = null
 
@@ -95,18 +124,30 @@ class IptvViewModel @Inject constructor(
         _selectedPrograms,
         _qrServerActive,
         _qrServerUrl,
-        _qrServerPort
-    ) { (channels, allGroups, group), epg, qrActive, qrUrl, qrPort ->
+        _qrServerPort,
+        _lastZoneIndex
+    ) { args: Array<Any?> ->
+        val (channels, allGroups, group) = args[0] as Triple<List<TvChannel>, List<String>, String?>
+        val epg = args[1] as List<EpgProgram>
+        val qrActive = args[2] as Boolean
+        val qrUrl = args[3] as String?
+        val qrPort = args[4] as Int
+        val lastIdx = args[5] as Map<FocusZone, Int>
         IptvUiState(
             isLoading = false,
             channels = channels,
             groups = allGroups,
             selectedGroup = group,
             favorites = _favorites.value,
-            isConfigured = true,
+            isConfigured = _m3uConfigured.value,
             currentPrograms = _currentPrograms.value,
             selectedPrograms = epg,
             focusedChannelId = _focusedChannelId.value,
+            focusZone = _focusZone.value,
+            focusIndex = _focusIndex.value,
+            lastZoneIndex = lastIdx,
+            searchQuery = _searchQuery.value,
+            isSearchActive = _isSearchActive.value,
             qrServerActive = qrActive,
             qrServerUrl = qrUrl,
             qrServerPort = qrPort
@@ -116,6 +157,8 @@ class IptvViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             val m3uUrl = repository.getM3uUrl()
+            android.util.Log.d("IptvDiag", "init: m3uUrl=${m3uUrl ?: "NULL"}")
+            _m3uConfigured.value = m3uUrl != null
             if (m3uUrl != null) {
                 refresh()
                 startProgramWatcher()
@@ -171,11 +214,38 @@ class IptvViewModel @Inject constructor(
             }
             is IptvEvent.FocusChannel -> viewModelScope.launch {
                 _focusedChannelId.value = event.channelId
+                _programsJob?.cancel()
                 if (event.channelId != null) {
-                    _selectedPrograms.value = repository.getProgramsByChannel(event.channelId).first()
+                    _programsJob = viewModelScope.launch {
+                        val programs = repository.getProgramsByChannel(event.channelId).first()
+                        android.util.Log.d("IptvDiag", "programs loaded: ${programs.size} for channel ${event.channelId}")
+                        _selectedPrograms.value = programs
+                    }
                 } else {
                     _selectedPrograms.value = emptyList()
                 }
+            }
+            is IptvEvent.MoveFocus -> {
+                _focusZone.value = event.zone
+                _focusIndex.value = event.index
+                // Save last index for this zone
+                _lastZoneIndex.value = _lastZoneIndex.value + (event.zone to event.index)
+                if (event.zone != FocusZone.SEARCH) {
+                    _isSearchActive.value = false
+                }
+            }
+            is IptvEvent.SetSearchQuery -> {
+                _searchQuery.value = event.query
+                _updateTick.value = System.currentTimeMillis()
+            }
+            is IptvEvent.ToggleSearch -> {
+                _isSearchActive.value = !_isSearchActive.value
+                if (!_isSearchActive.value) {
+                    _searchQuery.value = ""
+                    _focusZone.value = FocusZone.LIST
+                    _focusIndex.value = 0
+                }
+                _updateTick.value = System.currentTimeMillis()
             }
         }
     }
