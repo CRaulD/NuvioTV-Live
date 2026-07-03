@@ -393,8 +393,13 @@ dependencies {
     // DataStore
     implementation(libs.datastore.preferences)
 
-    // ViewModel
-    implementation(libs.lifecycle.viewmodel.compose)
+    // Room (para IPTV)
+        implementation(libs.room.runtime)
+        implementation(libs.room.ktx)
+        ksp(libs.room.compiler)
+
+        // ViewModel
+        implementation(libs.lifecycle.viewmodel.compose)
 
     // Media3 — remaining stock modules from Maven (not forked)
     implementation(libs.media3.exoplayer.hls)
