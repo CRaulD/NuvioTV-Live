@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -30,9 +29,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -44,6 +45,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.tv.material3.Text
+import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.EpgProgram
 import com.nuvio.tv.domain.model.TvChannel
 import com.nuvio.tv.ui.theme.NuvioTheme
@@ -71,25 +73,18 @@ private fun EpgProgram.progress(): Float {
 fun IptvPlayerPane(
     channel: TvChannel?,
     currentProgram: EpgProgram?,
-    nextProgram: EpgProgram? = null,
     isLive: Boolean,
     isEpgFocused: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     if (channel == null) {
-        // Empty state
-        Box(
-            modifier = modifier
-                .fillMaxWidth()
-                .height(200.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(NuvioTheme.colors.BackgroundCard.copy(alpha = 0.3f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "\u25B6", // ▶
-                color = NuvioTheme.colors.TextSecondary.copy(alpha = 0.3f),
-                fontSize = 36.sp
+        Column(modifier = modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(158.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(NuvioTheme.colors.Background)
             )
         }
         return
@@ -119,13 +114,24 @@ fun IptvPlayerPane(
     }
 
     Column(modifier = modifier.fillMaxWidth()) {
-        // ── Video player (200dp fixo) ────────────────────────────────────
+        // ── Video player (158dp fixo) ────────────────────────────────────
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(200.dp)
-                .clip(RoundedCornerShape(16.dp))
+                .height(158.dp)
+                .clip(RoundedCornerShape(12.dp))
                 .background(Color.Black)
+                .border(
+                    1.5.dp,
+                    NuvioTheme.colors.Secondary.copy(alpha = 0.35f),
+                    RoundedCornerShape(12.dp)
+                )
+                .shadow(
+                    elevation = 8.dp,
+                    shape = RoundedCornerShape(12.dp),
+                    ambientColor = NuvioTheme.colors.Secondary.copy(alpha = 0.08f),
+                    spotColor = NuvioTheme.colors.Secondary.copy(alpha = 0.04f)
+                )
         ) {
             // ── ExoPlayer ───────────────────────────────────────────────────
             AndroidView(
@@ -188,95 +194,93 @@ fun IptvPlayerPane(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "AO VIVO",
+                        text = stringResource(R.string.iptv_live_badge),
                         color = NuvioTheme.colors.Primary,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
+                        style = NuvioTheme.textStyles.badge,
                         letterSpacing = 0.15.sp
                     )
                 }
             }
-        }
 
-        // ── Channel info + progress (abaixo do player) ───────────────────
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 12.dp)
-        ) {
-            // Channel name
-            Text(
-                text = channel.name,
-                color = NuvioTheme.colors.TextPrimary,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            // Current program
-            if (currentProgram != null) {
-                Spacer(modifier = Modifier.height(4.dp))
-                MarqueeText(
-                    text = currentProgram.title,
-                    isActive = isEpgFocused,
-                    color = NuvioTheme.colors.TextSecondary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Normal,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                // Progress bar (4dp) with times
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+            // ── Info overlay (bottom-left) ──────────────────────────────────
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(horizontal = 14.dp, vertical = 12.dp)
+            ) {
+                Column {
+                    // Channel name
                     Text(
-                        text = currentProgram.startTime.toTimeString(),
-                        color = NuvioTheme.colors.TextSecondary,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
+                        text = channel.name,
+                        color = Color.White,
+                        style = NuvioTheme.textStyles.cardTitle,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(NuvioTheme.colors.TextSecondary.copy(alpha = 0.2f))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(currentProgram.progress())
-                                .fillMaxHeight()
-                                .clip(RoundedCornerShape(2.dp))
-                                .background(NuvioTheme.colors.Primary)
+
+                    // Current program + progress (se houver)
+                    if (currentProgram != null) {
+                        Spacer(modifier = Modifier.height(3.dp))
+                        MarqueeText(
+                            text = currentProgram.title.toTitleCase(),
+                            isActive = isEpgFocused,
+                            color = Color.White.copy(alpha = 0.75f),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Normal,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = currentProgram.startTime.toTimeString(),
+                                color = Color.White.copy(alpha = 0.6f),
+                                style = NuvioTheme.textStyles.metadata
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .width(80.dp)
+                                    .height(2.dp)
+                                    .clip(RoundedCornerShape(1.dp))
+                                    .background(Color.White.copy(alpha = 0.2f))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(currentProgram.progress())
+                                        .fillMaxSize()
+                                        .clip(RoundedCornerShape(1.dp))
+                                        .background(NuvioTheme.colors.Primary)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = currentProgram.endTime.toTimeString(),
+                                color = Color.White.copy(alpha = 0.6f),
+                                style = NuvioTheme.textStyles.metadata
+                            )
+                        }
+
+                        // Percentage + remaining
+                        val progress = currentProgram.progress()
+                        val remainingMs = currentProgram.endTime - System.currentTimeMillis()
+                        val remainingMin = (remainingMs / 60_000).toInt().coerceAtLeast(0)
+                        Text(
+                            text = "${(progress * 100).toInt()}% · ${remainingMin}min",
+                            color = Color.White.copy(alpha = 0.5f),
+                            style = NuvioTheme.textStyles.metadata,
+                            modifier = Modifier.padding(top = 2.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    // End time
-                    val endTime = currentProgram.endTime
-                    Text(
-                        text = endTime.toTimeString(),
-                        color = NuvioTheme.colors.TextSecondary,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
                 }
-
-                // Progress percentage + remaining time
-                val progress = currentProgram.progress()
-                val remainingMs = currentProgram.endTime - System.currentTimeMillis()
-                val remainingMin = (remainingMs / 60_000).toInt().coerceAtLeast(0)
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "${(progress * 100).toInt()}% · $remainingMin min restantes",
-                    color = NuvioTheme.colors.TextSecondary.copy(alpha = 0.5f),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium
-                )
             }
         }
     }
 }
+
+private fun String.toTitleCase(): String =
+    split(" ").joinToString(" ") { word ->
+        word.lowercase().replaceFirstChar { it.uppercase() }
+    }

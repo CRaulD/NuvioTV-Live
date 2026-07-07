@@ -1843,6 +1843,7 @@
     <string name="nav_movies">Filmes</string>
     <string name="nav_series">Séries</string>
     <string name="nav_settings">Ajustes</string>
+    <string name="nav_iptv">TV ao Vivo</string>
     <string name="action_select">Selecionar</string>
     <string name="settings_rounded_ui">Interface Arredondada</string>
     <string name="cd_expand_sidebar">Expandir menu lateral</string>
@@ -2536,5 +2537,23 @@
 
     <!-- Subtitle selection: unknown language fallback -->>
     <string name="subtitle_language_unknown">Desconhecido</string>
+
+    <!-- IPTV -->
+    <string name="iptv_search_placeholder">Pesquisar canal ou programa…</string>
+    <string name="iptv_live">Ao Vivo</string>
+    <string name="iptv_live_badge">AO VIVO</string>
+    <string name="iptv_schedule">PROGRAMAÇÃO</string>
+    <string name="iptv_remaining">%1$d min restantes</string>
+    <string name="iptv_minutes_short">min</string>
+    <string name="iptv_navigate">Navegar</string>
+    <string name="iptv_select">Selecionar</string>
+    <string name="iptv_hold_to_favorite">Segure OK para favoritar</string>
+    <string name="iptv_menu_navigation">navegação</string>
+    <string name="iptv_favorite_added">★ Adicionado aos favoritos</string>
+    <string name="iptv_favorite_removed">★ Removido dos favoritos</string>
+    <string name="iptv_currently_playing">Assistindo: %1$s</string>
+    <string name="iptv_category_all">Todos</string>
+    <string name="iptv_category_favorites">⭐ Favoritos</string>
+    <string name="iptv_footer_text">↑↓ %1$s · OK %2$s · ⭐ %3$s · %4$s</string>
 
 </resources>

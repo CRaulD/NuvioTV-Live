@@ -10,6 +10,7 @@ import com.nuvio.tv.core.server.PendingIptvChange
 import com.nuvio.tv.domain.model.EpgProgram
 import com.nuvio.tv.domain.model.TvChannel
 import com.nuvio.tv.domain.repository.IptvRepository
+import com.nuvio.tv.R
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -62,8 +63,6 @@ sealed class IptvEvent {
     data object ToggleSearch : IptvEvent()
 }
 
-private const val FAVORITES_GROUP = "⭐ Favoritos"
-
 @HiltViewModel
 class IptvViewModel @Inject constructor(
     private val repository: IptvRepository,
@@ -107,15 +106,16 @@ class IptvViewModel @Inject constructor(
         ) { channels: List<TvChannel>, groups: List<String>, group: String?, _: IptvEvent?, _: Long ->
             val programs = _currentPrograms.value
             val favs = _favorites.value
+            val favoritesGroup = appContext.getString(R.string.iptv_category_favorites)
 
             val allGroups = buildList {
-                if (favs.isNotEmpty()) add(FAVORITES_GROUP)
+                if (favs.isNotEmpty()) add(favoritesGroup)
                 addAll(groups)
             }
 
             val filtered = when {
                 group == null -> channels
-                group == FAVORITES_GROUP -> channels.filter { it.id in favs }
+                group == favoritesGroup -> channels.filter { it.id in favs }
                 else -> channels.filter { it.group == group }
             }
 
@@ -219,6 +219,10 @@ class IptvViewModel @Inject constructor(
                     _programsJob = viewModelScope.launch {
                         val programs = repository.getProgramsByChannel(event.channelId).first()
                         android.util.Log.d("IptvDiag", "programs loaded: ${programs.size} for channel ${event.channelId}")
+                        // Log dos títulos para debug do marquee
+                        programs.take(5).forEachIndexed { i, p ->
+                            android.util.Log.d("IptvDiag", "  epg[$i]: title='${p.title}' len=${p.title.length}")
+                        }
                         _selectedPrograms.value = programs
                     }
                 } else {
@@ -230,6 +234,7 @@ class IptvViewModel @Inject constructor(
                 _focusIndex.value = event.index
                 // Save last index for this zone
                 _lastZoneIndex.value = _lastZoneIndex.value + (event.zone to event.index)
+                _updateTick.value = System.currentTimeMillis()
                 if (event.zone != FocusZone.SEARCH) {
                     _isSearchActive.value = false
                 }

@@ -47,6 +47,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -672,6 +673,7 @@ class MainActivity : ComponentActivity() {
                             add(Screen.Search.route)
                             add(Screen.Library.route)
                             add(Screen.Settings.route)
+                            add(Screen.Iptv.route)
                             if (discoverLocation == DiscoverLocation.IN_SIDEBAR) {
                                 add(Screen.Discover.route)
                             }
@@ -683,12 +685,14 @@ class MainActivity : ComponentActivity() {
                     val strNavSearch = stringResource(R.string.nav_search)
                     val strNavLibrary = stringResource(R.string.nav_library)
                     val strNavSettings = stringResource(R.string.nav_settings)
+                    val strNavIptv = stringResource(R.string.nav_iptv)
                     val drawerItems = remember(
                         strNavHome,
                         strNavDiscover,
                         strNavSearch,
                         strNavLibrary,
                         strNavSettings,
+                        strNavIptv,
                         discoverLocation
                     ) {
                         buildList {
@@ -720,6 +724,13 @@ class MainActivity : ComponentActivity() {
                                     route = Screen.Library.route,
                                     label = strNavLibrary,
                                     iconRes = R.raw.sidebar_library
+                                )
+                            )
+                            add(
+                                DrawerItem(
+                                    route = Screen.Iptv.route,
+                                    label = strNavIptv,
+                                    icon = Icons.Default.Tv
                                 )
                             )
                             add(

@@ -53,6 +53,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
+import androidx.compose.ui.res.stringResource
+import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.EpgProgram
 import com.nuvio.tv.domain.model.TvChannel
 import com.nuvio.tv.ui.theme.NuvioTheme
@@ -120,6 +122,15 @@ fun IptvScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(NuvioTheme.colors.Background)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        NuvioTheme.colors.Secondary.copy(alpha = 0.04f),
+                        Color.Transparent,
+                        NuvioTheme.colors.Secondary.copy(alpha = 0.02f)
+                    )
+                )
+            )
             .onPreviewKeyEvent { event ->
                 Log.d("IptvKey", "key=${event.key} type=${event.type}")
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -297,10 +308,6 @@ fun IptvScreen(
                 state.channels.find { it.id == id }
             }
             val currentProgram = focusedChannel?.let { state.currentPrograms[it.id] }
-            val nextProgram = currentProgram?.let { curr ->
-                val idx = state.selectedPrograms.indexOfFirst { it.startTime == curr.startTime }
-                if (idx >= 0 && idx + 1 < state.selectedPrograms.size) state.selectedPrograms[idx + 1] else null
-            }
 
             Box(
                 modifier = Modifier
@@ -313,7 +320,6 @@ fun IptvScreen(
                     IptvPlayerPane(
                         channel = focusedChannel,
                         currentProgram = currentProgram,
-                        nextProgram = nextProgram,
                         isLive = focusedChannel?.let { it.id in state.currentPrograms } == true,
                         isEpgFocused = state.focusZone == FocusZone.EPG,
                         modifier = Modifier.fillMaxWidth()
@@ -321,7 +327,6 @@ fun IptvScreen(
                     // EPG Schedule
                     EpgSchedulePane(
                         programs = state.selectedPrograms,
-                        nextProgram = nextProgram,
                         focusZone = state.focusZone,
                         focusIndex = state.focusIndex,
                         modifier = Modifier
@@ -408,9 +413,9 @@ private fun CategorySidebar(
             .background(NuvioTheme.colors.Background)
             .padding(vertical = 4.dp)
     ) {
-        // "Todos"
+        // "All" category
         CategoryItem(
-            label = "Todos",
+            label = stringResource(R.string.iptv_category_all),
             isFocused = isInZone && focusIndex == 0,
             isSelectedGroup = selectedGroup == null,
             onClick = { onGroupClick("") },
