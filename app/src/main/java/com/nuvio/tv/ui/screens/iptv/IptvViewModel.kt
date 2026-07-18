@@ -285,7 +285,7 @@ class IptvViewModel @Inject constructor(
                     _programsJob = viewModelScope.launch {
                         val programs = repository.getProgramsByChannel(event.channelId).first()
                         android.util.Log.d("IptvDiag", "programs loaded: ${programs.size} for channel ${event.channelId}")
-                        // Log dos títulos para debug do marquee
+                        // Log titles for marquee debugging
                         programs.take(5).forEachIndexed { i, p ->
                             android.util.Log.d("IptvDiag", "  epg[$i]: title='${p.title}' len=${p.title.length}")
                         }

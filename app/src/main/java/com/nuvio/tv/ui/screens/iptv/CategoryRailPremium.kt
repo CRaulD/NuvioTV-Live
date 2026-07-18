@@ -58,17 +58,17 @@ import kotlin.math.absoluteValue
 // ─── Category colors — one per group for visual distinction ──────────────────
 
 private val CATEGORY_COLORS = listOf(
-    Color(0xFF3B82F6), // blue — Notícias
-    Color(0xFF22C55E), // green — Esportes
-    Color(0xFFA855F7), // purple — Variedades
-    Color(0xFFEF4444), // red — Filmes
-    Color(0xFFF97316), // orange — Séries
-    Color(0xFFEC4899), // pink — Infantil
-    Color(0xFF14B8A6), // teal — Documentários
-    Color(0xFFEAB308), // yellow — Musicais
-    Color(0xFF6366F1), // indigo — Religião
-    Color(0xFF84CC16), // lime — Culinária
-    Color(0xFF06B6D4), // cyan — Viagem
+    Color(0xFF3B82F6), // blue — News
+    Color(0xFF22C55E), // green — Sports
+    Color(0xFFA855F7), // purple — Variety
+    Color(0xFFEF4444), // red — Movies
+    Color(0xFFF97316), // orange — Series
+    Color(0xFFEC4899), // pink — Kids
+    Color(0xFF14B8A6), // teal — Documentaries
+    Color(0xFFEAB308), // yellow — Music
+    Color(0xFF6366F1), // indigo — Religion
+    Color(0xFF84CC16), // lime — Cooking
+    Color(0xFF06B6D4), // cyan — Travel
     Color(0xFF8B5CF6), // violet — Tech
 )
 

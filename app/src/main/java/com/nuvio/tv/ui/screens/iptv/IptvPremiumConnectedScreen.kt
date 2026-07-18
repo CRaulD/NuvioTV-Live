@@ -83,7 +83,7 @@ import com.nuvio.tv.ui.theme.NuvioTheme
  * - Navegação para IptvPlayerScreen ao pressionar OK
  */
 
-/** Seção de foco única — navegação vertical simples entre Rail e Grid. */
+/** Single focus section — simple vertical navigation between Rail and Grid. */
 private enum class FocusSection { BUTTONS, RAIL, GRID }
 
 @Composable
@@ -129,7 +129,7 @@ fun IptvPremiumConnectedScreen(
     LaunchedEffect(focusSection) {
         when (focusSection) {
             FocusSection.RAIL -> railFocusRequester.requestFocus()
-            else -> {} // grid e buttons têm foco próprio
+            else -> {} // grid and buttons have their own focus
         }
     }
 
@@ -177,7 +177,7 @@ fun IptvPremiumConnectedScreen(
                             railFocusRequester.requestFocus()
                             true
                         }
-                        Key.DirectionUp -> true // absorve pra não abrir drawer
+                        Key.DirectionUp -> true // absorb to prevent drawer opening
                         else -> false
                     }
                     FocusSection.RAIL -> when (event.key) {
@@ -361,7 +361,7 @@ fun IptvPremiumConnectedScreen(
     }
 }
 
-// ─── Empty state (quando não há playlist configurada) ─────────────────────────
+// ─── Empty state (when no playlist is configured) ────────────────────────
 
 @Composable
 private fun IptvPremiumEmptyState(onSetupClick: () -> Unit) {
@@ -569,7 +569,7 @@ private fun ConnectedSearchResultItem(
     }
 }
 
-// ─── Action icon button (ícones vetoriais no overlay do video) ────────────────
+// ─── Action icon button (vector icons on video overlay) ─────────────────
 
 @Composable
 private fun ActionIconButton(
