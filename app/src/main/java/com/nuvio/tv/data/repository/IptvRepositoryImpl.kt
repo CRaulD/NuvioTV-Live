@@ -29,6 +29,10 @@ class IptvRepositoryImpl @Inject constructor(
 ) : IptvRepository {
 
     private val _channels = MutableStateFlow<List<TvChannel>>(emptyList())
+    /** channelTvgId → normalized display name from XMLTV <channel> elements */
+    private var _channelNameMap: Map<String, String> = emptyMap()
+    /** Reverse: normalized name → channelTvgId */
+    private var _nameToTvgId: Map<String, String> = emptyMap()
 
     override fun getChannels(): Flow<List<TvChannel>> = _channels.asStateFlow()
 
@@ -47,15 +51,21 @@ class IptvRepositoryImpl @Inject constructor(
             try {
                 val request = Request.Builder().url(m3uUrl).build()
                 val response = okHttpClient.newCall(request).execute()
-                android.util.Log.d("IptvRepo", "HTTP ${response.code} ${response.message}")
-                val body = response.body?.string() ?: return@withContext
-                android.util.Log.d("IptvRepo", "body size=${body.length}")
+                response.use { resp ->
+                    android.util.Log.d("IptvRepo", "HTTP ${resp.code} ${resp.message}")
+                    val body = resp.body?.string() ?: return@withContext
+                    android.util.Log.d("IptvRepo", "body size=${body.length}")
 
-                val channels = M3uParser.parse(body)
-                android.util.Log.d("IptvRepo", "parsed ${channels.size} channels")
-                _channels.value = channels
+                    val channels = M3uParser.parse(body)
+                    android.util.Log.d("IptvRepo", "parsed ${channels.size} channels")
+                    // Log 5 sample channel IDs to compare with EPG channelTvgId
+                    channels.take(5).forEachIndexed { i, ch ->
+                        android.util.Log.d("IptvRepo", "  m3u[$i]: id='${ch.id}' name='${ch.name}' group='${ch.group}'")
+                    }
+                    _channels.value = channels
 
-                configDao.updateRefreshTimestamp(System.currentTimeMillis())
+                    configDao.updateRefreshTimestamp(System.currentTimeMillis())
+                }
             } catch (e: Exception) {
                 android.util.Log.e("IptvRepo", "refreshPlaylist failed", e)
             }
@@ -63,41 +73,161 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override suspend fun refreshEpg() {
-        val epgUrl = configDao.getEpgUrl() ?: return
-        withContext(Dispatchers.IO) {
+        val epgUrl = configDao.getEpgUrl()
+        // Try local epg-bridge server first (127.0.0.1 with ADB forward, or 10.0.2.2 emulator host)
+        val localCandidates = listOf(
+            "http://127.0.0.1:8099/merged-epg.xml",
+            "http://10.0.2.2:8099/merged-epg.xml"
+        )
+        val urlsToTry = if (epgUrl.isNullOrBlank()) {
+            localCandidates
+        } else {
+            listOf(epgUrl) + localCandidates
+        }
+
+        for (url in urlsToTry) {
+            android.util.Log.d("IptvRepo", "refreshEpg: trying $url")
             try {
-                val request = Request.Builder().url(epgUrl).build()
-                val response = okHttpClient.newCall(request).execute()
-                val body = response.body ?: return@withContext
+                withContext(Dispatchers.IO) {
+                    val request = Request.Builder().url(url).build()
+                    val response = okHttpClient.newCall(request).execute()
+                    response.use { resp ->
+                        val body = resp.body ?: return@withContext
 
-                // Parse XMLTV em streaming
-                val programs = EpgParser.parse(body.byteStream())
+                    // Parse XMLTV em streaming (handle gzip if URL ends with .gz)
+                    val rawStream = body.byteStream()
+                    val inputStream = if (url.endsWith(".gz", ignoreCase = true)) {
+                        java.util.zip.GZIPInputStream(rawStream)
+                    } else {
+                        rawStream
+                    }
+                    val epgData = EpgParser.parse(inputStream)
 
-                // Clear old + insert new
-                epgDao.clearAll()
+                    if (!epgData.isParseSuccess || epgData.programs.isEmpty()) {
+                        android.util.Log.w("IptvRepo", "  parse returned ${epgData.programs.size} progs, trying next URL")
+                        return@withContext
+                    }
 
-                // Inserir em lotes para não travar o banco
-                programs.chunked(500).forEach { batch ->
-                    epgDao.insertAll(batch.map { EpgProgramEntity.fromDomain(it) })
-                }
+                    _channelNameMap = epgData.channelNames
+                    _nameToTvgId = epgData.channelNames.entries.associate { (k, v) -> v to k }
 
-                // Limpar programas que já terminaram há mais de 24h
-                val threshold = System.currentTimeMillis() - 24 * 60 * 60 * 1000
-                epgDao.deleteOlderThan(threshold)
+                    android.util.Log.d("IptvRepo", "refreshEpg: parsed ${epgData.programs.size} programs, ${epgData.channelNames.size} channel names from $url")
+
+                    // Diagnostic: time range of parsed programs
+                    val minStart = epgData.programs.minOf { it.startTime }
+                    val maxEnd = epgData.programs.maxOf { it.endTime }
+                    android.util.Log.d("IptvRepo", "  program time range: $minStart to $maxEnd")
+                    val now = System.currentTimeMillis()
+                    val overlapping = epgData.programs.count { it.startTime <= now && it.endTime >= now }
+                    android.util.Log.d("IptvRepo", "  programs overlapping now ($now): $overlapping")
+                    epgData.programs.take(3).forEach { p ->
+                        android.util.Log.d("IptvRepo", "  sample: ch='${p.channelTvgId}' start=${p.startTime} end=${p.endTime} title='${p.title}'")
+                    }
+
+                    // DB operations in NonCancellable to survive screen transitions
+                    withContext(kotlinx.coroutines.NonCancellable) {
+                        epgDao.clearAll()
+                        epgData.programs.chunked(500).forEach { batch ->
+                            epgDao.insertAll(batch.map { EpgProgramEntity.fromDomain(it) })
+                        }
+                        val threshold = System.currentTimeMillis() - 24 * 60 * 60 * 1000
+                        epgDao.deleteOlderThan(threshold)
+                        android.util.Log.d("IptvRepo", "refreshEpg: SUCCESS from $url")
+                    }
+                } // response.use
+            }
+            return // success — parsed OK and inserted
             } catch (e: Exception) {
-                // Log would go here
+                android.util.Log.d("IptvRepo", "refreshEpg: failed for $url: ${e.message}")
             }
         }
+        android.util.Log.w("IptvRepo", "refreshEpg: all URLs failed")
     }
 
     override suspend fun getCurrentProgram(tvgId: String): EpgProgram? {
-        return epgDao.getCurrentProgram(tvgId)?.toDomain()
+        // Try exact match first
+        epgDao.getCurrentProgram(tvgId)?.let { return it.toDomain() }
+        // Fallback via name bridge
+        if (_nameToTvgId.isNotEmpty()) {
+            val m3uChannel = _channels.value.find { it.id == tvgId } ?: return null
+            val normalizedName = EpgParser.normalizeChannelName(m3uChannel.name)
+            val epgId = _nameToTvgId[normalizedName] ?: return null
+            return epgDao.getCurrentProgram(epgId)?.toDomain()
+        }
+        return null
     }
 
     override fun getProgramsByChannel(tvgId: String): Flow<List<EpgProgram>> {
         return epgDao.getProgramsByChannel(tvgId).map { entities ->
             entities.map { it.toDomain() }
         }
+    }
+
+    override suspend fun getProgramsForChannels(
+        tvgIds: List<String>,
+        windowStart: Long,
+        windowEnd: Long
+    ): List<EpgProgram> = withContext(Dispatchers.IO) {
+        if (tvgIds.isEmpty()) return@withContext emptyList()
+
+        // 1. Try exact match by ID first
+        val exact = epgDao.getProgramsForChannels(tvgIds, windowStart, windowEnd).map { it.toDomain() }
+        val matchedIds = exact.map { it.channelTvgId }.distinct().toSet()
+        val unmatched = tvgIds.count { it !in matchedIds }
+
+        // 2. If some unmatched, try fallback via name bridge
+        if (unmatched > 0 && _nameToTvgId.isNotEmpty()) {
+            val channels = _channels.value
+            // m3uId → epgId (so we can rewrite channelTvgId back to m3uId)
+            val bridgeByEpgId = mutableMapOf<String, String>() // epgId → m3uId
+
+            for (m3uId in tvgIds) {
+                if (m3uId in matchedIds) continue
+                val m3uChannel = channels.find { it.id == m3uId } ?: continue
+                val normalizedName = EpgParser.normalizeChannelName(m3uChannel.name)
+
+                // 2a. Exact name match (existing)
+                var epgId = _nameToTvgId[normalizedName]
+                if (epgId != null && epgId !in matchedIds) {
+                    bridgeByEpgId[epgId] = m3uId
+                    continue
+                }
+
+                // 2b. Substring fallback: M3U name contains EPG name (or vice versa)
+                // Pick the longest match to avoid false positives ("Gloob" vs "Globo")
+                var bestEpgId: String? = null
+                var bestLen = 0
+                for ((epgNormalName, candidateId) in _nameToTvgId) {
+                    if (candidateId in matchedIds) continue
+                    if (epgNormalName.length < 3 || normalizedName.length < 3) continue
+                    if (normalizedName.contains(epgNormalName) || epgNormalName.contains(normalizedName)) {
+                        val matchLen = minOf(normalizedName.length, epgNormalName.length)
+                        if (matchLen > bestLen) {
+                            bestLen = matchLen
+                            bestEpgId = candidateId
+                        }
+                    }
+                }
+                if (bestEpgId != null && bestEpgId !in matchedIds) {
+                    bridgeByEpgId[bestEpgId] = m3uId
+                }
+            }
+
+            if (bridgeByEpgId.isNotEmpty()) {
+                android.util.Log.d("IptvRepo", "name fallback: ${bridgeByEpgId.size} channels bridged via name")
+                val nameMatched = epgDao.getProgramsForChannels(
+                    bridgeByEpgId.keys.toList(), windowStart, windowEnd
+                ).map { it.toDomain() }
+                // Rewrite channelTvgId back to M3U id so groupBy matches grid lookups
+                val rewritten = nameMatched.map { prog ->
+                    val m3uId = bridgeByEpgId[prog.channelTvgId]
+                    if (m3uId != null) prog.copy(channelTvgId = m3uId) else prog
+                }
+                return@withContext exact + rewritten
+            }
+        }
+
+        exact
     }
 
     override suspend fun getM3uUrl(): String? = configDao.getM3uUrl()

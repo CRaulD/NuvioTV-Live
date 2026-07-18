@@ -485,10 +485,11 @@ class MainActivity : ComponentActivity() {
                     }
 
                     if (
-                        hasSeenAuthQrOnFirstLaunch == false &&
-                        authState !is AuthState.FullAccount &&
-                        !onboardingCompletedThisSession
-                    ) {
+                                            hasSeenAuthQrOnFirstLaunch == false &&
+                                            authState !is AuthState.FullAccount &&
+                                            !onboardingCompletedThisSession &&
+                                            !BuildConfig.IS_DEBUG_BUILD  // TEMPORÁRIO: pular auth em debug
+                                        ) {
                         AuthQrSignInScreen(
                             onBackPress = { finish() },
                             onContinue = {
@@ -579,9 +580,10 @@ class MainActivity : ComponentActivity() {
                     val hideBuiltInHeadersForFloatingPill = modernSidebarEnabled && !sidebarCollapsed
 
                     val startDestination = when {
-                        needsExperienceSelection -> Screen.ExperienceModeSelection.route
-                        layoutChosen -> Screen.Home.route
-                        else -> Screen.LayoutSelection.route
+                                            BuildConfig.IS_DEBUG_BUILD -> Screen.Iptv.route // TEMPORÁRIO: testar tela premium
+                                            needsExperienceSelection -> Screen.ExperienceModeSelection.route
+                                            layoutChosen -> Screen.Home.route
+                                            else -> Screen.LayoutSelection.route
                     }
                     val navController = rememberNavController()
                     var optimisticRoute by remember { mutableStateOf<String?>(null) }

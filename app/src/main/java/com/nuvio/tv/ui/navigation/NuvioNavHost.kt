@@ -1305,15 +1305,15 @@ fun NuvioNavHost(
             )
         }
 
-        // ── IPTV ──
+        // ── IPTV Premium (conectado ao ViewModel real) ──
         composable(Screen.Iptv.route) {
-            com.nuvio.tv.ui.screens.iptv.IptvScreen(
-                onChannelClick = { channel ->
+            com.nuvio.tv.ui.screens.iptv.IptvPremiumConnectedScreen(
+                onChannelPlay = { channelUrl, channelName, channelLogo ->
                     navController.navigate(
                         com.nuvio.tv.ui.screens.iptv.IptvPlayerScreen.createRoute(
-                            channelUrl = channel.url,
-                            channelName = channel.name,
-                            channelLogo = channel.logo
+                            channelUrl = channelUrl,
+                            channelName = channelName,
+                            channelLogo = channelLogo
                         )
                     )
                 },

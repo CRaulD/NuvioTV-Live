@@ -3,13 +3,13 @@ package com.nuvio.tv.core.iptv
 import com.nuvio.tv.domain.model.TvChannel
 
 /**
- * Parser de playlist M3U/M3U+ em modo streaming (linha a linha).
- * Suporta:
+ * Streaming M3U/M3U+ playlist parser (line by line).
+ * Supports:
  * - #EXTM3U header
- * - #EXTINF com atributos: tvg-id, tvg-name, tvg-logo, group-title
- * - Extended M3U com atributos entre aspas
- * - BOM opcional no início do arquivo
- * - Comentários (#EXT-X-*, #KODIPROP, etc.)
+ * - #EXTINF with attributes: tvg-id, tvg-name, tvg-logo, group-title
+ * - Extended M3U with quoted attributes
+ * - Optional BOM at file start
+ * - Comments (#EXT-X-*, #KODIPROP, etc.)
  */
 object M3uParser {
 
@@ -32,11 +32,11 @@ object M3uParser {
             }
 
             if (trimmed.startsWith("#")) {
-                // Outros comentários/tags — ignorar
+                // Other comment/tags — skip
                 continue
             }
 
-            // Linha com URL — pareia com o último #EXTINF
+            // URL line — pairs with the last #EXTINF
             val url = trimmed
             val extInf = currentExtInf
             if (url.isNotEmpty() && extInf != null) {
@@ -50,10 +50,10 @@ object M3uParser {
     }
 
     private fun parseChannel(extInf: String, url: String): TvChannel {
-        // Extrai o nome (depois do último vírgula)
+        // Extract name (after the last comma)
         val name = extractName(extInf)
 
-        // Extrai atributos tvg-id, tvg-name, tvg-logo, group-title
+        // Extract attributes tvg-id, tvg-name, tvg-logo, group-title
         val tvgId = extractAttribute(extInf, "tvg-id") ?: name
         val tvgName = extractAttribute(extInf, "tvg-name")
         val tvgLogo = extractAttribute(extInf, "tvg-logo")
@@ -71,8 +71,8 @@ object M3uParser {
     }
 
     /**
-     * Extrai o nome do canal do #EXTINF.
-     * O formato é: #EXTINF:-1 atributos,Nome do Canal
+     * Extract channel name from #EXTINF.
+     * Format: #EXTINF:-1 attributes,Channel Name
      */
     private fun extractName(extInf: String): String {
         val commaIndex = extInf.lastIndexOf(',')
@@ -81,9 +81,9 @@ object M3uParser {
     }
 
     /**
-     * Extrai um atributo do #EXTINF pelo nome.
-     * Suporta valores com e sem aspas.
-     * Ex: tvg-id="globo" ou tvg-id=globo
+     * Extract an attribute from #EXTINF by name.
+     * Supports quoted and unquoted values.
+     * Ex: tvg-id="globo" or tvg-id=globo
      */
     private fun extractAttribute(extInf: String, attrName: String): String? {
         val regex = Regex("""$attrName\s*=\s*"([^"]*)"|$attrName\s*=\s*(\S+)""")

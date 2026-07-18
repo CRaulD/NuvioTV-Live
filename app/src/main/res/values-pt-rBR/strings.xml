@@ -2556,4 +2556,41 @@
     <string name="iptv_category_favorites">⭐ Favoritos</string>
     <string name="iptv_footer_text">↑↓ %1$s · OK %2$s · ⭐ %3$s · %4$s</string>
 
+    <!-- IPTV generic -->
+    <string name="iptv_no_programming">Sem programação</string>
+    <string name="iptv_search_btn">Buscar</string>
+    <string name="iptv_settings_btn">Configurações</string>
+    <string name="iptv_browse_categories">Navegue pelas categorias</string>
+    <string name="iptv_select_channel_hint">Selecione um canal para ver a programação</string>
+    <string name="iptv_select_channel">Selecione um canal</string>
+    <string name="iptv_no_channels_found">Nenhum canal encontrado</string>
+    <string name="iptv_channels_found">%1$d canais encontrados</string>
+    <string name="iptv_type_to_search">Digite para buscar canais e programas</string>
+    <string name="iptv_channel_count">%1$d canais</string>
+
+    <!-- IPTV Config/Setup -->
+    <string name="iptv_setup_title">TV ao Vivo</string>
+    <string name="iptv_setup_subtitle">Configure sua playlist IPTV pelo celular</string>
+    <string name="iptv_m3u_url_label">URL da Playlist M3U</string>
+    <string name="iptv_m3u_url_placeholder">URL da playlist M3U</string>
+    <string name="iptv_epg_url_label">URL do EPG (opcional)</string>
+    <string name="iptv_epg_url_placeholder">URL do EPG (opcional)</string>
+    <string name="iptv_save_btn">Salvar</string>
+    <string name="iptv_qr_btn">Configurar pelo celular</string>
+    <string name="iptv_qr_title">Configurar pelo celular</string>
+    <string name="iptv_qr_instruction">Escaneie o QR code com seu celular</string>
+    <string name="iptv_qr_error">Erro ao gerar QR Code</string>
+    <string name="iptv_qr_back_btn">Voltar</string>
+    <string name="iptv_connection_lost">Conexão perdida com a TV</string>
+    <string name="iptv_waiting_tv_confirmation">Aguardando confirmação na TV</string>
+    <string name="iptv_confirm_changes_tv">Confirme as alterações na sua TV</string>
+    <string name="iptv_playlist_updated">Playlist atualizada!</string>
+    <string name="iptv_new_urls_saved">As novas URLs foram salvas na TV</string>
+    <string name="iptv_changes_rejected">Alterações rejeitadas na TV</string>
+    <string name="iptv_error_saving">Erro ao salvar. Tente novamente.</string>
+    <string name="iptv_error_title">Erro</string>
+    <string name="iptv_empty_state_title">TV ao Vivo</string>
+    <string name="iptv_empty_state_subtitle">Nenhuma playlist configurada</string>
+    <string name="iptv_empty_state_btn">Configurar playlist</string>
+    <string name="iptv_epg_refresh_btn">Atualizar EPG</string>
 </resources>

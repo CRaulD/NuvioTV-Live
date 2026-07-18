@@ -134,6 +134,7 @@ sealed class Screen(val route: String) {
     data object Library : Screen("library")
     data object Settings : Screen("settings")
     data object Iptv : Screen("iptv")
+    data object IptvPremium : Screen("iptv_premium")
     data object IptvSetup : Screen("iptv_setup")
     data object Trakt : Screen("trakt")
     data object TmdbSettings : Screen("tmdb_settings")

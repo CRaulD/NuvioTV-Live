@@ -1,4 +1,4 @@
-package com.nuvio.tv.ui.screens.addon
+﻿package com.nuvio.tv.ui.screens.addon
 
 import android.content.Context
 import androidx.lifecycle.ViewModel
@@ -505,7 +505,7 @@ class AddonManagerViewModel @Inject constructor(
         val collectionKeysSet = currentCollections.map { "collection_${it.id}" }.toSet()
         val allValidOrderKeys = availableCatalogKeys + collectionKeysSet
         val availableDisableKeyToName = currentCatalogEntries.associate { entry ->
-            entry.disableKey to "${entry.catalogName} • ${entry.addonName}"
+            entry.disableKey to "${entry.catalogName} â€¢ ${entry.addonName}"
         }
 
         val added = change.proposedUrls.filter { normalizeUrlForComparison(it) !in currentUrls }
@@ -612,13 +612,6 @@ class AddonManagerViewModel @Inject constructor(
                     collectionSyncService.triggerPush()
                 } catch (_: Exception) { }
             }
-            // Apply disabled collection key changes
-            if (pending.proposedDisabledCollectionKeys.isNotEmpty() || disabledHomeCatalogKeys.any { it.startsWith("collection_") }) {
-                val nonCollectionDisabledKeys = disabledHomeCatalogKeys.filter { !it.startsWith("collection_") }
-                val mergedDisabledKeys = nonCollectionDisabledKeys + pending.proposedDisabledCollectionKeys
-                layoutPreferenceDataStore.setDisabledHomeCatalogKeys(mergedDisabledKeys)
-                homeCatalogSettingsSyncService.triggerPush()
-            }
             // Apply follow addons order change
             if (pending.proposedFollowAddonsOrder != null) {
                 layoutPreferenceDataStore.setFollowAddonsOrder(pending.proposedFollowAddonsOrder)
@@ -661,23 +654,18 @@ class AddonManagerViewModel @Inject constructor(
         )
         val availableCatalogKeys = availableCatalogEntries.map { it.key }.toSet()
         val availableDisableKeys = availableCatalogEntries.map { it.disableKey }.toSet()
-        // Collection keys are also valid in the ordering
         val collectionKeys = currentCollections.map { "collection_${it.id}" }.toSet()
-        val allValidOrderKeys = availableCatalogKeys + collectionKeys
+        val resolved = resolvePendingHomeCatalogPreferences(
+            proposedCatalogOrderKeys = pending.proposedCatalogOrderKeys,
+            proposedDisabledCatalogKeys = pending.proposedDisabledCatalogKeys,
+            proposedDisabledCollectionKeys = pending.proposedDisabledCollectionKeys,
+            availableCatalogKeys = availableCatalogKeys,
+            availableDisableKeys = availableDisableKeys,
+            collectionKeys = collectionKeys
+        )
 
-        val validCatalogOrder = pending.proposedCatalogOrderKeys
-            .asSequence()
-            .filter { it in allValidOrderKeys }
-            .distinct()
-            .toList()
-        val validDisabledCatalogs = pending.proposedDisabledCatalogKeys
-            .asSequence()
-            .filter { it in availableDisableKeys }
-            .distinct()
-            .toList()
-
-        layoutPreferenceDataStore.setHomeCatalogOrderKeys(validCatalogOrder)
-        layoutPreferenceDataStore.setDisabledHomeCatalogKeys(validDisabledCatalogs)
+        layoutPreferenceDataStore.setHomeCatalogOrderKeys(resolved.orderKeys)
+        layoutPreferenceDataStore.setDisabledHomeCatalogKeys(resolved.disabledKeys)
         homeCatalogSettingsSyncService.triggerPush()
     }
 
@@ -899,3 +887,5 @@ class AddonManagerViewModel @Inject constructor(
         val isDisabled: Boolean = false
     )
 }
+
+

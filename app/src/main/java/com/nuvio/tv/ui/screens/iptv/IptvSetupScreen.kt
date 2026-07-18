@@ -16,7 +16,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -26,9 +28,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Text
+import androidx.compose.ui.res.stringResource
+import com.nuvio.tv.R
 import com.nuvio.tv.core.qr.QrCodeGenerator
 import com.nuvio.tv.core.server.DeviceIpAddress
 import com.nuvio.tv.ui.theme.NuvioTheme
+import java.util.Locale
 
 @Composable
 fun IptvSetupScreen(
@@ -61,7 +66,7 @@ fun IptvSetupScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "Configurar TV ao Vivo",
+                    text = stringResource(R.string.iptv_setup_title),
                     color = NuvioTheme.colors.TextPrimary,
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
@@ -69,7 +74,7 @@ fun IptvSetupScreen(
                 )
 
                 Text(
-                    text = "URL da Playlist M3U",
+                    text = stringResource(R.string.iptv_m3u_url_label),
                     color = NuvioTheme.colors.TextSecondary,
                     fontSize = 14.sp,
                     modifier = Modifier
@@ -93,7 +98,7 @@ fun IptvSetupScreen(
                     decorationBox = { innerTextField ->
                         if (m3uUrl.isEmpty()) {
                             Text(
-                                text = "https://m3u4u.com/m3u/...",
+                                text = stringResource(R.string.iptv_m3u_url_placeholder),
                                 color = NuvioTheme.colors.TextSecondary,
                                 fontSize = 14.sp
                             )
@@ -105,7 +110,7 @@ fun IptvSetupScreen(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
-                    text = "URL do EPG (opcional)",
+                    text = stringResource(R.string.iptv_epg_url_label),
                     color = NuvioTheme.colors.TextSecondary,
                     fontSize = 14.sp,
                     modifier = Modifier
@@ -129,7 +134,7 @@ fun IptvSetupScreen(
                     decorationBox = { innerTextField ->
                         if (epgUrl.isEmpty()) {
                             Text(
-                                text = "https://m3u4u.com/xml/...",
+                                text = stringResource(R.string.iptv_epg_url_placeholder),
                                 color = NuvioTheme.colors.TextSecondary,
                                 fontSize = 14.sp
                             )
@@ -147,7 +152,7 @@ fun IptvSetupScreen(
                     },
                     enabled = m3uUrl.isNotBlank()
                 ) {
-                    Text("Salvar", color = NuvioTheme.colors.TextPrimary)
+                    Text(stringResource(R.string.iptv_save_btn), color = NuvioTheme.colors.TextPrimary)
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -166,7 +171,21 @@ fun IptvSetupScreen(
                         contentColor = NuvioTheme.colors.TextPrimary
                     )
                 ) {
-                    Text("Configurar pelo celular")
+                    Text(stringResource(R.string.iptv_qr_btn))
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // EPG refresh button
+                Button(
+                    onClick = { viewModel.forceRefreshEpg() },
+                    colors = ButtonDefaults.colors(
+                        containerColor = NuvioTheme.colors.Primary.copy(alpha = 0.2f),
+                        focusedContainerColor = NuvioTheme.colors.Primary.copy(alpha = 0.4f),
+                        contentColor = NuvioTheme.colors.TextPrimary
+                    )
+                ) {
+                    Text(stringResource(R.string.iptv_epg_refresh_btn))
                 }
             }
         }
@@ -190,7 +209,7 @@ private fun QrModePanel(
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            text = "Configurar pelo celular",
+            text = stringResource(R.string.iptv_qr_title),
             color = NuvioTheme.colors.TextPrimary,
             fontSize = 22.sp,
             fontWeight = FontWeight.Bold
@@ -199,7 +218,7 @@ private fun QrModePanel(
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "Escaneie o QR code com seu celular",
+            text = stringResource(R.string.iptv_qr_instruction),
             color = NuvioTheme.colors.TextSecondary,
             fontSize = 14.sp
         )
@@ -225,7 +244,7 @@ private fun QrModePanel(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "Erro ao gerar QR Code",
+                    text = stringResource(R.string.iptv_qr_error),
                     color = NuvioTheme.colors.TextSecondary,
                     textAlign = TextAlign.Center
                 )
@@ -253,7 +272,7 @@ private fun QrModePanel(
                 contentColor = NuvioTheme.colors.TextSecondary
             )
         ) {
-            Text("Voltar")
+            Text(stringResource(R.string.iptv_qr_back_btn))
         }
     }
 }

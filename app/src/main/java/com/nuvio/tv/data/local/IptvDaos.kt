@@ -59,6 +59,24 @@ interface EpgDao {
     """)
     fun getProgramsByChannel(tvgId: String): kotlinx.coroutines.flow.Flow<List<EpgProgramEntity>>
 
+    /**
+     * Programs overlapping a time window for multiple channels (EPG grid).
+     * A program overlaps [windowStart, windowEnd) if it starts before the window ends
+     * and ends after it starts.
+     */
+    @Query("""
+        SELECT * FROM epg_programs
+        WHERE channelTvgId IN (:tvgIds)
+          AND startTime < :windowEnd
+          AND endTime > :windowStart
+        ORDER BY channelTvgId, startTime ASC
+    """)
+    suspend fun getProgramsForChannels(
+        tvgIds: List<String>,
+        windowStart: Long,
+        windowEnd: Long
+    ): List<EpgProgramEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(programs: List<EpgProgramEntity>)
 

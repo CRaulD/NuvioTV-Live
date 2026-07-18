@@ -20,7 +20,12 @@ data class FavoriteEntity(
 
 @Entity(
     tableName = "epg_programs",
-    indices = [androidx.room.Index(value = ["channelTvgId"])]
+    indices = [
+        androidx.room.Index(value = ["channelTvgId"]),
+        // Composite index for the multi-channel time-window query used by the EPG grid:
+        // WHERE channelTvgId IN (...) AND startTime < :windowEnd AND endTime > :windowStart
+        androidx.room.Index(value = ["channelTvgId", "startTime", "endTime"])
+    ]
 )
 data class EpgProgramEntity(
     @PrimaryKey(autoGenerate = true)

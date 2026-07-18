@@ -27,7 +27,11 @@ object IptvModule {
             context,
             AppDatabase::class.java,
             "nuvio_iptv.db"
-        ).build()
+        )
+            // Dev-only: schema changed (new EPG index) without a formal migration.
+            // Drop & recreate is safe here — no user data to preserve on emulator.
+            .fallbackToDestructiveMigration(false)
+            .build()
     }
 
     @Provides

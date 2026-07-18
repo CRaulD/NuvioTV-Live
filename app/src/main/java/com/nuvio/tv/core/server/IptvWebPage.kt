@@ -105,28 +105,28 @@ object IptvWebPage {
 <body>
 <div class="page">
   <div class="header">
-    <h1>TV ao Vivo</h1>
-    <p>Configure sua playlist IPTV pelo celular</p>
+    <h1>${context.getString(com.nuvio.tv.R.string.iptv_setup_title)}</h1>
+    <p>${context.getString(com.nuvio.tv.R.string.iptv_setup_subtitle)}</p>
   </div>
 
   <div class="field">
-    <label>URL da Playlist M3U</label>
-    <input type="url" id="m3uUrl" placeholder="https://m3u4u.com/m3u/..." autocomplete="off" autocapitalize="off" spellcheck="false">
+    <label>${context.getString(com.nuvio.tv.R.string.iptv_m3u_url_label)}</label>
+    <input type="url" id="m3uUrl" placeholder="${context.getString(com.nuvio.tv.R.string.iptv_m3u_url_placeholder)}" autocomplete="off" autocapitalize="off" spellcheck="false">
   </div>
 
   <div class="field">
-    <label>URL do EPG (opcional)</label>
-    <input type="url" id="epgUrl" placeholder="https://m3u4u.com/xml/..." autocomplete="off" autocapitalize="off" spellcheck="false">
+    <label>${context.getString(com.nuvio.tv.R.string.iptv_epg_url_label)}</label>
+    <input type="url" id="epgUrl" placeholder="${context.getString(com.nuvio.tv.R.string.iptv_epg_url_placeholder)}" autocomplete="off" autocapitalize="off" spellcheck="false">
   </div>
 
-  <button class="btn btn-save" id="saveBtn" onclick="saveChanges()">Salvar</button>
+  <button class="btn btn-save" id="saveBtn" onclick="saveChanges()">${context.getString(com.nuvio.tv.R.string.iptv_save_btn)}</button>
 </div>
 
 <div class="status-overlay" id="statusOverlay">
   <div class="status-content" id="statusContent"></div>
 </div>
 
-<div class="connection-bar" id="connectionBar">Conexão perdida com a TV</div>
+<div class="connection-bar" id="connectionBar">${context.getString(com.nuvio.tv.R.string.iptv_connection_lost)}</div>
 
 <script>
 var pollTimer = null;
@@ -184,7 +184,7 @@ async function saveChanges() {
       saveBtn.disabled = false;
     }
   } catch (e) {
-    showErrorStatus('Erro ao salvar. Tente novamente.');
+    showErrorStatus('${context.getString(com.nuvio.tv.R.string.iptv_error_saving)}');
     saveBtn.disabled = false;
   }
 }
@@ -194,8 +194,8 @@ function showPendingStatus() {
   var content = document.getElementById('statusContent');
   content.innerHTML =
     '<div class="status-icon"><div class="spinner"></div></div>' +
-    '<div class="status-title">Aguardando confirmação na TV</div>' +
-    '<div class="status-message">Confirme as alterações no aparelho de TV</div>';
+    '<div class="status-title">${context.getString(com.nuvio.tv.R.string.iptv_waiting_tv_confirmation)}</div>' +
+    '<div class="status-message">${context.getString(com.nuvio.tv.R.string.iptv_confirm_changes_tv)}</div>';
   content.className = 'status-content';
   overlay.classList.add('visible');
 }
@@ -204,8 +204,8 @@ function showSuccessStatus() {
   var content = document.getElementById('statusContent');
   content.innerHTML =
     '<div class="status-icon"><div class="status-svg"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div></div>' +
-    '<div class="status-title">Playlist atualizada!</div>' +
-    '<div class="status-message">As novas URLs foram salvas na TV</div>';
+    '<div class="status-title">${context.getString(com.nuvio.tv.R.string.iptv_playlist_updated)}</div>' +
+    '<div class="status-message">${context.getString(com.nuvio.tv.R.string.iptv_new_urls_saved)}</div>';
   content.className = 'status-content status-success';
   setTimeout(dismissStatus, 2500);
 }
@@ -214,7 +214,7 @@ function showErrorStatus(msg) {
   var content = document.getElementById('statusContent');
   content.innerHTML =
     '<div class="status-icon"><div class="status-svg"><svg viewBox="0 0 24 24" fill="none" stroke="rgba(207,102,121,0.9)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg></div></div>' +
-    '<div class="status-title">Erro</div>' +
+    '<div class="status-title">${context.getString(com.nuvio.tv.R.string.iptv_error_title)}</div>' +
     '<div class="status-message">' + msg + '</div>';
   content.className = 'status-content status-error';
   saveBtn.disabled = false;
@@ -234,7 +234,7 @@ function pollStatus(id) {
         showSuccessStatus();
       } else if (data.status === 'rejected' || data.status === 'not_found') {
         clearInterval(pollTimer);
-        showErrorStatus('Alterações rejeitadas na TV');
+        showErrorStatus('${context.getString(com.nuvio.tv.R.string.iptv_changes_rejected)}');
         saveBtn.disabled = false;
       }
     } catch (e) {

@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.iptv
 
+import android.content.Context
 import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -31,16 +32,18 @@ data class IptvUiState(
     val error: String? = null,
     val isConfigured: Boolean = false,
     val currentPrograms: Map<String, EpgProgram> = emptyMap(),
+    val gridPrograms: Map<String, List<EpgProgram>> = emptyMap(),
     val selectedPrograms: List<EpgProgram> = emptyList(),
     val focusedChannelId: String? = null,
     // Focus state (D-pad navigation)
     val focusZone: FocusZone = FocusZone.LIST,
     val focusIndex: Int = 0,
     val lastZoneIndex: Map<FocusZone, Int> = mapOf(
-        FocusZone.SIDEBAR to 0,
+        FocusZone.RAIL to 0,
         FocusZone.SEARCH to 0,
         FocusZone.LIST to 0,
-        FocusZone.EPG to 0
+        FocusZone.EPG to 0,
+        FocusZone.GRID to 0
     ),
     val searchQuery: String = "",
     val isSearchActive: Boolean = false,
@@ -72,6 +75,7 @@ class IptvViewModel @Inject constructor(
     private val selectedGroup = MutableStateFlow<String?>(null)
     private val _events = MutableStateFlow<IptvEvent?>(null)
     private val _currentPrograms = MutableStateFlow<Map<String, EpgProgram>>(emptyMap())
+    private val _gridPrograms = MutableStateFlow<Map<String, List<EpgProgram>>>(emptyMap())
     private val _favorites = MutableStateFlow<Set<String>>(emptySet())
     private val _updateTick = MutableStateFlow(0L)
     private val _focusedChannelId = MutableStateFlow<String?>(null)
@@ -87,14 +91,32 @@ class IptvViewModel @Inject constructor(
     private var _programsJob: kotlinx.coroutines.Job? = null
     private val _lastZoneIndex = MutableStateFlow<Map<FocusZone, Int>>(
         mapOf(
-            FocusZone.SIDEBAR to 0,
+            FocusZone.RAIL to 0,
             FocusZone.SEARCH to 0,
             FocusZone.LIST to 0,
-            FocusZone.EPG to 0
+            FocusZone.EPG to 0,
+            FocusZone.GRID to 0
         )
     )
 
     private var configServer: IptvConfigServer? = null
+
+    /** EPG auto-refresh interval: 4h stale threshold, 6h periodic check */
+    private companion object {
+        private const val EPG_STALE_MS = 4 * 60 * 60 * 1000L
+        private const val EPG_PERIODIC_MS = 6 * 60 * 60 * 1000L
+    }
+
+    private val epgPrefs get() = appContext.getSharedPreferences("iptv_prefs", Context.MODE_PRIVATE)
+
+    private fun isEpgStale(): Boolean {
+        val last = epgPrefs.getLong("last_epg_refresh", 0L)
+        return (System.currentTimeMillis() - last) > EPG_STALE_MS
+    }
+
+    /** Exposed "now" tick for the UI — DO NOT include in combine. UI collects via collectAsState(). */
+    private val _nowTick = MutableStateFlow(System.currentTimeMillis())
+    val nowTick: StateFlow<Long> = _nowTick
 
     val uiState: StateFlow<IptvUiState> = combine(
         combine(
@@ -115,7 +137,7 @@ class IptvViewModel @Inject constructor(
 
             val filtered = when {
                 group == null -> channels
-                group == favoritesGroup -> channels.filter { it.id in favs }
+                group == favoritesGroup -> channels.filter { it.favoriteKey in favs }
                 else -> channels.filter { it.group == group }
             }
 
@@ -125,7 +147,8 @@ class IptvViewModel @Inject constructor(
         _qrServerActive,
         _qrServerUrl,
         _qrServerPort,
-        _lastZoneIndex
+        _lastZoneIndex,
+        _gridPrograms
     ) { args: Array<Any?> ->
         val (channels, allGroups, group) = args[0] as Triple<List<TvChannel>, List<String>, String?>
         val epg = args[1] as List<EpgProgram>
@@ -133,6 +156,7 @@ class IptvViewModel @Inject constructor(
         val qrUrl = args[3] as String?
         val qrPort = args[4] as Int
         val lastIdx = args[5] as Map<FocusZone, Int>
+        val gridProgs = args[6] as Map<String, List<EpgProgram>>
         IptvUiState(
             isLoading = false,
             channels = channels,
@@ -141,6 +165,7 @@ class IptvViewModel @Inject constructor(
             favorites = _favorites.value,
             isConfigured = _m3uConfigured.value,
             currentPrograms = _currentPrograms.value,
+            gridPrograms = gridProgs,
             selectedPrograms = epg,
             focusedChannelId = _focusedChannelId.value,
             focusZone = _focusZone.value,
@@ -161,8 +186,24 @@ class IptvViewModel @Inject constructor(
             _m3uConfigured.value = m3uUrl != null
             if (m3uUrl != null) {
                 refresh()
-                startProgramWatcher()
-                startFavoriteWatcher()
+            }
+        }
+        startProgramWatcher()
+        startFavoriteWatcher()
+
+        // Start now tick (60s cadence, independent of combine)
+        viewModelScope.launch {
+            while (true) {
+                _nowTick.value = System.currentTimeMillis()
+                delay(60_000)
+            }
+        }
+
+        // Periodic EPG auto-refresh (6h, checks staleness)
+        viewModelScope.launch {
+            while (true) {
+                delay(EPG_PERIODIC_MS)
+                refreshEpgIfStale()
             }
         }
     }
@@ -180,31 +221,56 @@ class IptvViewModel @Inject constructor(
     private fun startProgramWatcher() {
         viewModelScope.launch {
             while (true) {
-                refreshCurrentPrograms()
+                loadGridPrograms()
                 _updateTick.value = System.currentTimeMillis()
-                delay(30_000)
+                delay(120_000) // refresh grid every 2 minutes
             }
         }
     }
 
-    private suspend fun refreshCurrentPrograms() {
+    suspend fun loadGridPrograms() {
         try {
             val channels = repository.getChannels().first()
-            val programs = mutableMapOf<String, EpgProgram>()
-            for (channel in channels) {
-                val prog = repository.getCurrentProgram(channel.id)
-                if (prog != null) {
-                    programs[channel.id] = prog
-                }
+            val group = selectedGroup.value
+            val filtered = when {
+                group == null -> channels
+                else -> channels.filter { it.group == group }
             }
-            _currentPrograms.value = programs
-        } catch (_: Exception) { }
+            if (filtered.isEmpty()) {
+                _gridPrograms.value = emptyMap()
+                return
+            }
+            val tvgIds = filtered.map { it.id }
+            val now = _nowTick.value
+            val hourMs = 60 * 60 * 1000L
+            val windowStart = now - (now % hourMs)
+            val windowEnd = windowStart + 8 * hourMs // 8-hour window
+
+            val allPrograms = repository.getProgramsForChannels(tvgIds, windowStart, windowEnd)
+            android.util.Log.d("IptvDiag", "loadGridPrograms: got ${allPrograms.size} progs for ${tvgIds.size} ids")
+
+            val grouped = allPrograms.groupBy { it.channelTvgId }
+            val mapped = filtered.associate { ch ->
+                ch.id to (grouped[ch.id] ?: emptyList())
+            }
+            val withData = mapped.count { it.value.isNotEmpty() }
+            android.util.Log.d("IptvDiag", "gridPrograms: ${allPrograms.size} progs → $withData channels mapped")
+            _gridPrograms.value = mapped
+        } catch (e: Exception) {
+            android.util.Log.e("IptvDiag", "loadGridPrograms failed", e)
+        }
     }
 
     fun onEvent(event: IptvEvent) {
         when (event) {
-            is IptvEvent.SelectGroup -> selectedGroup.value = event.group
-            is IptvEvent.ClearGroup -> selectedGroup.value = null
+            is IptvEvent.SelectGroup -> {
+                selectedGroup.value = event.group
+                viewModelScope.launch { loadGridPrograms() }
+            }
+            is IptvEvent.ClearGroup -> {
+                selectedGroup.value = null
+                viewModelScope.launch { loadGridPrograms() }
+            }
             is IptvEvent.Refresh -> refresh()
             is IptvEvent.Retry -> refresh()
             is IptvEvent.ToggleFavorite -> viewModelScope.launch {
@@ -301,17 +367,48 @@ class IptvViewModel @Inject constructor(
     }
 
     private fun refresh() {
+        // Run playlist and EPG refresh independently — one cancellation doesn't block the other
         viewModelScope.launch {
             try {
                 repository.refreshPlaylist()
+            } catch (e: Exception) {
+                android.util.Log.e("IptvVM", "playlist refresh failed", e)
+            }
+        }
+        refreshEpgTask()
+    }
+
+    private fun refreshEpgTask() {
+        viewModelScope.launch {
+            try {
                 repository.refreshEpg()
-                refreshCurrentPrograms()
+                epgPrefs.edit().putLong("last_epg_refresh", System.currentTimeMillis()).apply()
+                loadGridPrograms()
                 _favorites.value = repository.getFavorites().toSet()
                 android.util.Log.d("IptvVM", "refresh done, favs=${_favorites.value.size}")
                 _updateTick.value = System.currentTimeMillis()
             } catch (e: Exception) {
-                android.util.Log.e("IptvVM", "refresh failed", e)
+                android.util.Log.e("IptvVM", "epg refresh failed", e)
             }
         }
+    }
+
+    /** Refresh EPG only if > 4h since last refresh (auto-refresh path). */
+    private suspend fun refreshEpgIfStale() {
+        if (!isEpgStale()) return
+        android.util.Log.d("IptvVM", "auto epg refresh: stale, downloading...")
+        try {
+            repository.refreshEpg()
+            epgPrefs.edit().putLong("last_epg_refresh", System.currentTimeMillis()).apply()
+            loadGridPrograms()
+            _updateTick.value = System.currentTimeMillis()
+        } catch (e: Exception) {
+            android.util.Log.e("IptvVM", "auto epg refresh failed", e)
+        }
+    }
+
+    /** Force EPG refresh regardless of staleness (manual button / save). */
+    fun forceRefreshEpg() {
+        refreshEpgTask()
     }
 }
