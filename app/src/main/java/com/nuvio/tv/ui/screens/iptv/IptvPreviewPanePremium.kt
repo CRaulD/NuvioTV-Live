@@ -22,32 +22,22 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.MediaItem
-import androidx.media3.common.PlaybackException
-import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.EpgProgram
@@ -61,20 +51,6 @@ private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault()).apply {
     timeZone = java.util.TimeZone.getTimeZone("America/Sao_Paulo")
 }
 private fun Long.toHourMin(): String = timeFormat.format(Date(this))
-// No fallback to demo — only show real channel preview
-
-/**
- * Premium preview pane — video full-width com info sobreposta.
- *
- * Layout:
- * ┌──────────────────────────────────────────────┐
- * │  ● AO VIVO                                   │  MiniVideoPlayer (fill)
- * │                                               │
- * │  Globo News                                   │  info overlay (bottom)
- * │  Jornal das Dez                               │
- * │  19:00 ████████░░░ 73% · 12min  20:00        │  barra compacta 2dp
- * └──────────────────────────────────────────────┘
- */
 
 private fun EpgProgram.progressValue(now: Long): Float {
     val total = endTime - startTime
@@ -82,11 +58,28 @@ private fun EpgProgram.progressValue(now: Long): Float {
     val elapsed = now - startTime
     return (elapsed.toFloat() / total.toFloat()).coerceIn(0f, 1f)
 }
+
+/**
+ * Premium preview pane — video full-width com info sobreposta.
+ *
+ * Aceita [player] por parâmetro (hoisted no pai) para que o mesmo
+ * ExoPlayer seja compartilhado entre preview (collapsed) e fullscreen (expanded).
+ *
+ * Layout:
+ * ┌──────────────────────────────────────────────┐
+ * │  ● AO VIVO                                   │  MiniVideoPlayer (fill)
+ * │                                               │
+ * │  Globo News                                   │  info overlay (bottom)
+ * │  Jornal das Dez                               │
+ * │  19:00 ████████░░░ 73% · 12min  20:00        │
+ * └──────────────────────────────────────────────┘
+ */
 @Composable
 fun IptvPreviewPanePremium(
     channel: TvChannel?,
     currentProgram: EpgProgram?,
     now: Long,
+    player: ExoPlayer,
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(12.dp)
@@ -122,11 +115,21 @@ fun IptvPreviewPanePremium(
             return
         }
 
-        // ── Full-width video player ──────────────────────────────────────
-        MiniVideoPlayerFill(
-            channel = channel,
-            modifier = Modifier.fillMaxSize()
-        )
+        // ── Full-width video player (shared ExoPlayer) ──────────────────
+        Box(modifier = Modifier.fillMaxSize()) {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        this.player = player
+                        useController = false
+                        isFocusable = false
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
+                        setBackgroundColor(android.graphics.Color.BLACK)
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
 
         // ── Gradient overlay (bottom fade) ───────────────────────────────
         Box(
@@ -182,7 +185,6 @@ fun IptvPreviewPanePremium(
                 .padding(horizontal = 16.dp, vertical = 14.dp)
         ) {
             Column {
-                // Channel name
                 Text(
                     text = channel.name,
                     color = Color.White.copy(alpha = 0.75f),
@@ -195,7 +197,6 @@ fun IptvPreviewPanePremium(
                 if (currentProgram != null) {
                     Spacer(modifier = Modifier.height(2.dp))
 
-                    // Program title
                     Text(
                         text = currentProgram.title,
                         color = Color.White,
@@ -207,7 +208,6 @@ fun IptvPreviewPanePremium(
 
                     Spacer(modifier = Modifier.height(4.dp))
 
-                    // Time row + progress bar
                     val progress = currentProgram.progressValue(now)
                     val remainingMin = ((currentProgram.endTime - now) / 60_000).toInt().coerceAtLeast(0)
 
@@ -219,7 +219,6 @@ fun IptvPreviewPanePremium(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
 
-                        // Progress bar
                         Box(
                             modifier = Modifier
                                 .width(100.dp)
@@ -259,59 +258,5 @@ fun IptvPreviewPanePremium(
                 }
             }
         }
-    }
-}
-
-// ─── Full-width Mini-video player ─────────────────────────────────────────────
-
-@Composable
-private fun MiniVideoPlayerFill(
-    channel: TvChannel?,
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-    val player = remember {
-        ExoPlayer.Builder(context).build().apply {
-            playWhenReady = true
-            repeatMode = Player.REPEAT_MODE_OFF
-        }
-    }
-
-    DisposableEffect(Unit) {
-        val listener = object : Player.Listener {
-            override fun onPlayerError(error: PlaybackException) {
-                // Stream unreachable — just stop, don't fallback to demo
-                player.stop()
-            }
-        }
-        player.addListener(listener)
-        onDispose {
-            player.removeListener(listener)
-            player.release()
-        }
-    }
-
-    LaunchedEffect(channel?.id) {
-        if (channel != null && channel.url.isNotBlank()) {
-            val mediaItem = MediaItem.fromUri(Uri.parse(channel.url))
-            player.setMediaItem(mediaItem)
-            player.prepare()
-            player.play()
-        }
-    }
-
-    Box(modifier = modifier) {
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    this.player = player
-                    useController = false
-                    isFocusable = false
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
-                    setBackgroundColor(android.graphics.Color.BLACK)
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
     }
 }

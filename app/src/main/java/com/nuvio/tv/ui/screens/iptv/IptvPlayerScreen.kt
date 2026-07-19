@@ -2,13 +2,15 @@
 package com.nuvio.tv.ui.screens.iptv
 
 import android.view.ViewGroup
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -17,26 +19,31 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
-import androidx.activity.compose.BackHandler
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.tv.material3.Text
+import kotlinx.coroutines.delay
 
 /**
- * Fullscreen IPTV player with sidebar overlay.
+ * Fullscreen IPTV player with auto-hide HUD overlay.
+ *
  * Route: iptv_player/{channelUrl}/{channelName}?channelLogo={channelLogo}
+ *
+ * HUD behavior:
+ * - HUD appears on any key press (except BACK)
+ * - Auto-hides after 4 seconds of inactivity
+ * - BACK hides HUD first, then exits on second press
  */
 object IptvPlayerScreen {
     const val ROUTE = "iptv_player/{channelUrl}/{channelName}?channelLogo={channelLogo}"
@@ -67,7 +74,7 @@ fun IptvPlayerScreen(
     val context = LocalContext.current
     val state by viewModel.uiState.collectAsState()
 
-    // ── Which channel is currently playing ─────────────────────────────────
+    // ── Which channel is currently playing ─────────────────
     val initialChannel = remember(channelUrl, channelName, state.channels) {
         state.channels.find { it.url == channelUrl || it.name == channelName }
     }
@@ -82,7 +89,7 @@ fun IptvPlayerScreen(
         focusRequester.requestFocus()
     }
 
-    // ── ExoPlayer ──────────────────────────────────────────────────────────
+    // ── ExoPlayer ──────────────────────────────────────────
     val player = remember(currentChannel?.url ?: channelUrl) {
         val url = currentChannel?.url ?: channelUrl
         ExoPlayer.Builder(context).build().apply {
@@ -106,7 +113,7 @@ fun IptvPlayerScreen(
         }
     }
 
-    // Rebuild player when channel switches via sidebar
+    // Rebuild player when channel switches
     LaunchedEffect(currentChannel?.url) {
         currentChannel?.let { ch ->
             val mediaItem = MediaItem.Builder()
@@ -121,9 +128,45 @@ fun IptvPlayerScreen(
         }
     }
 
-    // ── Back: exit player ──────────────────────────────────
-    BackHandler(enabled = true) {
-        onBackPress()
+    // ── HUD visibility -------------------------------------------------------
+    var isHudVisible by remember { mutableStateOf(true) }
+    var hudTimerReset by remember { mutableStateOf(0L) }
+
+    // Auto-hide after 4s of idle
+    LaunchedEffect(isHudVisible, hudTimerReset) {
+        if (isHudVisible) {
+            delay(4000)
+            isHudVisible = false
+        }
+    }
+
+    // Local now-tick for progress bar smoothness (1s granularity)
+    var localNow by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            localNow = System.currentTimeMillis()
+            delay(1000)
+        }
+    }
+
+    // ── Key handling ───────────────────────────────────────
+    fun showHud() {
+        isHudVisible = true
+        hudTimerReset = System.nanoTime() // bump to restart the auto-hide timer
+    }
+
+    val previewKeyHandler: (androidx.compose.ui.input.key.KeyEvent) -> Boolean = { event ->
+        if (event.type == KeyEventType.KeyDown) {
+            when (event.key) {
+                Key.DirectionUp, Key.DirectionDown,
+                Key.DirectionLeft, Key.DirectionRight,
+                Key.Enter, Key.NumPadEnter, Key.Menu -> {
+                    showHud()
+                    false // don't consume — let other handlers process
+                }
+                else -> false
+            }
+        } else false
     }
 
     Box(
@@ -132,6 +175,7 @@ fun IptvPlayerScreen(
             .background(Color.Black)
             .focusable()
             .focusRequester(focusRequester)
+            .onPreviewKeyEvent(previewKeyHandler)
     ) {
         // 1. ExoPlayer View (no built-in controller — we handle keys ourselves)
         AndroidView(
@@ -148,35 +192,30 @@ fun IptvPlayerScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // 2. OSD overlay (always visible)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color.Black.copy(alpha = 0.5f))
-                .padding(16.dp),
-            contentAlignment = Alignment.CenterStart
+        // 2. HUD overlay — auto-hides after 4s idle
+        AnimatedVisibility(
+            visible = isHudVisible,
+            enter = fadeIn(animationSpec = tween(300)),
+            exit = fadeOut(animationSpec = tween(300))
         ) {
-            Column {
-                val ch = currentChannel
-                Text(
-                    text = ch?.name ?: channelName,
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (ch != null && state.currentPrograms[ch.id] != null) {
-                    val prog = state.currentPrograms[ch.id]!!
-                    Text(
-                        text = prog.title,
-                        color = Color.White.copy(alpha = 0.7f),
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
+            PlayerHud(
+                channelName = currentChannel?.name ?: channelName,
+                channelGroup = currentChannel?.group,
+                currentProgram = currentChannel?.let { ch ->
+                    state.currentPrograms[ch.id]
+                },
+                nowTick = localNow
+            )
+        }
+    }
+
+    // ── Back: hide HUD first, then exit ────────────────────
+    BackHandler(enabled = true) {
+        if (isHudVisible) {
+            isHudVisible = false
+            // DON'T bump hudTimerReset — we want to hide, not restart the timer
+        } else {
+            onBackPress()
         }
     }
 }

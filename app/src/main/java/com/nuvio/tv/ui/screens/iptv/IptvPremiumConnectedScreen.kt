@@ -2,7 +2,14 @@
 
 package com.nuvio.tv.ui.screens.iptv
 
+import android.net.Uri
+import android.view.ViewGroup
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -22,10 +30,13 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -33,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -42,15 +54,21 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.material3.Icon
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import androidx.tv.material3.Border
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
@@ -59,31 +77,18 @@ import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.EpgProgram
 import com.nuvio.tv.domain.model.TvChannel
 import com.nuvio.tv.ui.theme.NuvioTheme
+import com.nuvio.tv.ui.util.LocalIsPlayerFullscreen
+import kotlinx.coroutines.delay
 
 /**
  * Premium IPTV screen conectada ao ViewModel real (Hilt).
  *
- * Layout (mesmo do IptvRailPreviewScreenPremium):
- * ┌──────────────────────────────────────────────────┐
- * │  ▶ Video full-width                     [🔍][⚙] │  IptvPreviewPanePremium (210dp)
- * │     info sobreposta                              │  action buttons overlay
- * ├──────────────────────────────────────────────────┤
- * │  ● Todos  ● Notícias  ● Esportes  ...           │  CategoryRailPremium (100dp)
- * ├──────────────────────────────────────────────────┤
- * │  │ 08:00  09:00  10:00  11:00                   │  EpgGridCompact
- * │  │ 1│CH1│ Café │ Jornal │ Novela │ ...          │
- * ├──────────────────────────────────────────────────┤
- * │  ↑↓ Navigate · OK Select · Menu navigation      │  Footer
- * └──────────────────────────────────────────────────┘
+ * Modo collapsed: preview + rail + EPG grid (navegação vertical).
+ * Modo expanded: fullscreen video + HUD + ←→ troca canal.
  *
- * Diferenças do demo:
- * - Dados reais do IptvRepository via IptvViewModel
- * - Canais com URLs reais (stream M3U)
- * - Programação real do EPG
- * - Navegação para IptvPlayerScreen ao pressionar OK
+ * O ExoPlayer é instância ÚNICA, criada aqui e compartilhada
+ * entre o preview pane (collapsed) e o fullscreen (expanded).
  */
-
-/** Single focus section — simple vertical navigation between Rail and Grid. */
 private enum class FocusSection { BUTTONS, RAIL, GRID }
 
 @Composable
@@ -92,6 +97,7 @@ fun IptvPremiumConnectedScreen(
     onSetupClick: () -> Unit,
     viewModel: IptvViewModel = hiltViewModel()
 ) {
+    val context = LocalContext.current
     val state by viewModel.uiState.collectAsState()
     val now by viewModel.nowTick.collectAsState()
 
@@ -110,7 +116,7 @@ fun IptvPremiumConnectedScreen(
 
     val hourMs = 60 * 60 * 1000L
 
-    // ── State local (foco Rail ↔ Grid) ──────────────────────────────────
+    // ── State local ─────────────────────────────────────────────────────
     val railFocusRequester = remember { FocusRequester() }
     val gridFocusRequester = remember { FocusRequester() }
     var focusSection by remember { mutableStateOf(FocusSection.RAIL) }
@@ -129,7 +135,7 @@ fun IptvPremiumConnectedScreen(
     LaunchedEffect(focusSection) {
         when (focusSection) {
             FocusSection.RAIL -> railFocusRequester.requestFocus()
-            else -> {} // grid and buttons have their own focus
+            else -> {}
         }
     }
 
@@ -145,223 +151,474 @@ fun IptvPremiumConnectedScreen(
 
     val focusedChannel = filteredChannels.firstOrNull { it.id == focusedChannelId }
 
-    // Current program (now-playing) from grid programs
     val currentProgram = focusedChannel?.let { ch ->
         state.gridPrograms[ch.id]
             ?.firstOrNull { prog -> now >= prog.startTime && now < prog.endTime }
     }
 
-    // ── EPG grid data from ViewModel ────────────────────────────────────
+    // ── EPG grid data ──────────────────────────────────────────────────
     val windowStart = remember(now) { now - (now % hourMs) }
     val windowEnd = windowStart + 12 * hourMs
 
-    // ── Screen ──────────────────────────────────────────────────────────
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        NuvioTheme.colors.Background,
-                        NuvioTheme.colors.BackgroundElevated.copy(alpha = 0.3f),
-                        NuvioTheme.colors.Background
-                    )
+    // ══════════════════════════════════════════════════════════════════════
+    //  SHARED ExoPlayer — instância única, hoisted do preview pane
+    // ══════════════════════════════════════════════════════════════════════
+
+    val exoPlayer = remember {
+        ExoPlayer.Builder(context).build().apply {
+            playWhenReady = true
+            repeatMode = Player.REPEAT_MODE_OFF
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            exoPlayer.run {
+                playWhenReady = false
+                stop()
+                release()
+            }
+        }
+    }
+
+    // Load channel media when focused channel changes
+    LaunchedEffect(focusedChannel?.id) {
+        val ch = focusedChannel ?: return@LaunchedEffect
+        if (ch.url.isNotBlank()) {
+            val mediaItem = MediaItem.fromUri(Uri.parse(ch.url))
+            exoPlayer.stop()
+            exoPlayer.setMediaItem(mediaItem)
+            exoPlayer.prepare()
+            exoPlayer.play()
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  EXPANDED MODE STATE
+    // ══════════════════════════════════════════════════════════════════════
+
+    var isExpanded by remember { mutableStateOf(false) }
+    val expandedFocusRequester = remember { FocusRequester() }
+
+    // Notify MainActivity to hide sidebar drawer
+    val isPlayerFullscreen = LocalIsPlayerFullscreen.current
+    LaunchedEffect(isExpanded) {
+        isPlayerFullscreen.value = isExpanded
+    }
+
+    // Track current channel index for ←→ navigation
+    var currentChannelIdx by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(isExpanded, focusedChannelId, filteredChannels.size) {
+        if (isExpanded && focusedChannelId != null) {
+            currentChannelIdx = filteredChannels.indexOfFirst { it.id == focusedChannelId }
+                .coerceAtLeast(0)
+            expandedFocusRequester.requestFocus()
+        }
+    }
+
+    // ── HUD state (auto-hide) ──────────────────────────────────────────
+    var isHudVisible by remember { mutableStateOf(true) }
+    var hudTimerReset by remember { mutableStateOf(0L) }
+
+    LaunchedEffect(isHudVisible, hudTimerReset) {
+        if (isHudVisible) {
+            delay(4000)
+            isHudVisible = false
+        }
+    }
+
+    // Local now-tick (1s granularity)
+    var localNow by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(isExpanded) {
+        while (isExpanded) {
+            localNow = System.currentTimeMillis()
+            delay(1000)
+        }
+    }
+
+    // ── Switch channel helper ──────────────────────────────────────────
+    fun switchChannel(delta: Int) {
+        val idx = (currentChannelIdx + delta).coerceIn(0, (filteredChannels.size - 1).coerceAtLeast(0))
+        if (idx != currentChannelIdx && filteredChannels.isNotEmpty()) {
+            currentChannelIdx = idx
+            val newCh = filteredChannels[idx]
+            focusedChannelId = newCh.id
+            viewModel.onEvent(IptvEvent.FocusChannel(newCh.id))
+            // Show HUD + reset timer
+            isHudVisible = true
+            hudTimerReset = System.nanoTime()
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  LAYOUT
+    // ══════════════════════════════════════════════════════════════════════
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (isExpanded) {
+            // ─────────────────────────────────────────────────────────────
+            // EXPANDED — fullscreen player
+            // ─────────────────────────────────────────────────────────────
+
+            val expandedChannel = filteredChannels.getOrNull(currentChannelIdx)
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+                    .focusable()
+                    .focusRequester(expandedFocusRequester)
+                    .onPreviewKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (event.key) {
+                            Key.DirectionLeft -> {
+                                switchChannel(-1)
+                                true
+                            }
+                            Key.DirectionRight -> {
+                                switchChannel(1)
+                                true
+                            }
+                            Key.DirectionDown -> {
+                                // Future: open rail
+                                true
+                            }
+                            Key.Menu -> {
+                                // Future: open EPG overlay
+                                true
+                            }
+                            else -> false
+                        }
+                    }
+            ) {
+                // Fullscreen video (same ExoPlayer)
+                AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            this.player = exoPlayer
+                            useController = false
+                            setKeepScreenOn(true)
+                            isFocusable = false
+                            isFocusableInTouchMode = false
+                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
+                            descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+                            setBackgroundColor(android.graphics.Color.BLACK)
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
                 )
-            )
-            .onPreviewKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                when (focusSection) {
-                    FocusSection.BUTTONS -> when (event.key) {
-                        Key.DirectionDown -> {
-                            focusSection = FocusSection.RAIL
-                            railFocusRequester.requestFocus()
-                            true
-                        }
-                        Key.DirectionUp -> true // absorb to prevent drawer opening
-                        else -> false
+
+                // HUD overlay
+                AnimatedVisibility(
+                    visible = isHudVisible,
+                    enter = fadeIn(animationSpec = tween(300)),
+                    exit = fadeOut(animationSpec = tween(300))
+                ) {
+                    val hudProgram = expandedChannel?.let { ch ->
+                        state.gridPrograms[ch.id]
+                            ?.firstOrNull { prog -> localNow >= prog.startTime && localNow < prog.endTime }
                     }
-                    FocusSection.RAIL -> when (event.key) {
-                        Key.DirectionUp -> {
-                            focusSection = FocusSection.BUTTONS
-                            true
-                        }
-                        Key.DirectionDown -> {
-                            focusSection = FocusSection.GRID
-                            gridFocusRequester.requestFocus()
-                            true
-                        }
-                        else -> false
-                    }
-                    FocusSection.GRID -> when (event.key) {
-                        Key.DirectionUp -> {
-                            // grid gerencia UP interno + onExitUp no primeiro canal
-                            false
-                        }
-                        else -> false
+                    PlayerHud(
+                        channelName = expandedChannel?.name ?: "",
+                        channelGroup = expandedChannel?.group,
+                        currentProgram = hudProgram,
+                        nowTick = localNow
+                    )
+                }
+
+                // Mini card (1s on channel switch)
+                var showMiniCard by remember { mutableStateOf(false) }
+                LaunchedEffect(currentChannelIdx) {
+                    if (isExpanded) {
+                        showMiniCard = true
+                        delay(1000)
+                        showMiniCard = false
                     }
                 }
+                if (showMiniCard && expandedChannel != null) {
+                    MiniCardSwitch(
+                        channel = expandedChannel,
+                        currentProgram = expandedChannel?.let { ch ->
+                            state.currentPrograms[ch.id]
+                        }
+                    )
+                }
             }
-    ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // ── Top zone: preview + rail ────────────────────────────────
-            Column(
+
+            // BACK to collapse
+            androidx.activity.compose.BackHandler(enabled = isExpanded) {
+                isExpanded = false
+            }
+
+        } else {
+            // ─────────────────────────────────────────────────────────────
+            // COLLAPSED — preview + rail + grid
+            // ─────────────────────────────────────────────────────────────
+
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
-                                NuvioTheme.colors.Surface.copy(alpha = 0.5f),
-                                NuvioTheme.colors.BackgroundCard.copy(alpha = 0.3f),
+                                NuvioTheme.colors.Background,
+                                NuvioTheme.colors.BackgroundElevated.copy(alpha = 0.3f),
                                 NuvioTheme.colors.Background
                             )
                         )
                     )
+                    .onPreviewKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (focusSection) {
+                            FocusSection.BUTTONS -> when (event.key) {
+                                Key.DirectionDown -> {
+                                    focusSection = FocusSection.RAIL
+                                    railFocusRequester.requestFocus()
+                                    true
+                                }
+                                Key.DirectionUp -> true
+                                else -> false
+                            }
+                            FocusSection.RAIL -> when (event.key) {
+                                Key.DirectionUp -> {
+                                    focusSection = FocusSection.BUTTONS
+                                    true
+                                }
+                                Key.DirectionDown -> {
+                                    focusSection = FocusSection.GRID
+                                    gridFocusRequester.requestFocus()
+                                    true
+                                }
+                                else -> false
+                            }
+                            FocusSection.GRID -> when (event.key) {
+                                Key.DirectionUp -> false
+                                else -> false
+                            }
+                        }
+                    }
             ) {
-                Spacer(modifier = Modifier.height(8.dp))
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // Top zone: preview + rail
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        NuvioTheme.colors.Surface.copy(alpha = 0.5f),
+                                        NuvioTheme.colors.BackgroundCard.copy(alpha = 0.3f),
+                                        NuvioTheme.colors.Background
+                                    )
+                                )
+                            )
+                    ) {
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                // ─── Preview pane with action button overlay ────────────
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(210.dp)
-                        .padding(horizontal = 24.dp, vertical = 0.dp)
-                ) {
-                    IptvPreviewPanePremium(
-                        channel = focusedChannel,
-                        currentProgram = currentProgram,
+                        // Preview pane with action buttons overlay
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(210.dp)
+                                .padding(horizontal = 24.dp, vertical = 0.dp)
+                        ) {
+                            IptvPreviewPanePremium(
+                                channel = focusedChannel,
+                                currentProgram = currentProgram,
+                                now = now,
+                                player = exoPlayer,
+                                modifier = Modifier.fillMaxSize()
+                            )
+
+                            // Top-right: search + settings
+                            Row(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(top = 12.dp, end = 12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                ActionIconButton(
+                                    icon = Icons.Default.Search,
+                                    contentDescription = stringResource(R.string.iptv_search_btn),
+                                    onClick = { showSearch = true },
+                                    focusable = focusSection == FocusSection.RAIL || focusSection == FocusSection.BUTTONS
+                                )
+                                ActionIconButton(
+                                    icon = Icons.Default.Settings,
+                                    contentDescription = stringResource(R.string.iptv_settings_btn),
+                                    onClick = { onSetupClick() },
+                                    focusable = focusSection == FocusSection.RAIL || focusSection == FocusSection.BUTTONS
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        CategoryRailPremium(
+                            groups = state.groups,
+                            channels = state.channels,
+                            selectedGroup = state.selectedGroup,
+                            onGroupClick = { group ->
+                                if (group.isEmpty()) viewModel.onEvent(IptvEvent.ClearGroup)
+                                else viewModel.onEvent(IptvEvent.SelectGroup(group))
+                                focusedChannelId = null
+                            },
+                            isFocused = !showSearch && focusSection == FocusSection.RAIL,
+                            focusRequester = railFocusRequester
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // EPG Grid Compact
+                    EpgGridCompact(
+                        channels = filteredChannels,
+                        gridPrograms = state.gridPrograms,
+                        windowStart = windowStart,
+                        windowEnd = windowEnd,
                         now = now,
-                        modifier = Modifier.fillMaxSize()
+                        focusedChannelId = focusedChannelId,
+                        onChannelPlay = { channel ->
+                            // Expand instead of navigating to separate player
+                            focusedChannelId = channel.id
+                            currentChannelIdx = filteredChannels.indexOfFirst { it.id == channel.id }
+                                .coerceAtLeast(0)
+                            isExpanded = true
+                        },
+                        onShiftWindow = { delta ->
+                            android.util.Log.d("IptvPremiumConnected", "Shift: $delta")
+                        },
+                        onToggleFavorite = { channelId ->
+                            viewModel.onEvent(IptvEvent.ToggleFavorite(channelId))
+                        },
+                        favorites = state.favorites,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .padding(horizontal = 12.dp),
+                        enabled = !showSearch && focusSection == FocusSection.GRID,
+                        onExitLeft = { focusSection = FocusSection.RAIL; railFocusRequester.requestFocus() },
+                        onExitUp = { focusSection = FocusSection.RAIL; railFocusRequester.requestFocus() },
+                        onChannelFocused = { channelId ->
+                            focusedChannelId = channelId
+                        },
+                        focusRequester = gridFocusRequester
                     )
 
-                    // Top-right: search + settings buttons
+                    // Footer
                     Row(
                         modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(top = 12.dp, end = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            .fillMaxWidth()
+                            .alpha(0.5f)
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
                     ) {
-                        ActionIconButton(
-                            icon = Icons.Default.Search,
-                            contentDescription = stringResource(R.string.iptv_search_btn),
-                            onClick = { showSearch = true },
-                            focusable = focusSection == FocusSection.RAIL || focusSection == FocusSection.BUTTONS
-                        )
-                        ActionIconButton(
-                            icon = Icons.Default.Settings,
-                            contentDescription = stringResource(R.string.iptv_settings_btn),
-                            onClick = { onSetupClick() },
-                            focusable = focusSection == FocusSection.RAIL || focusSection == FocusSection.BUTTONS
+                        Text(
+                            text = stringResource(
+                                R.string.iptv_footer_text,
+                                stringResource(R.string.iptv_navigate),
+                                stringResource(R.string.iptv_select),
+                                stringResource(R.string.iptv_hold_to_favorite),
+                                stringResource(R.string.iptv_menu_navigation)
+                            ),
+                            color = NuvioTheme.colors.TextSecondary,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Category rail (dados reais)
-                CategoryRailPremium(
-                    groups = state.groups,
-                    channels = state.channels,
-                    selectedGroup = state.selectedGroup,
-                    onGroupClick = { group ->
-                        if (group.isEmpty()) viewModel.onEvent(IptvEvent.ClearGroup)
-                        else viewModel.onEvent(IptvEvent.SelectGroup(group))
-                        focusedChannelId = null
-                    },
-                    isFocused = !showSearch && focusSection == FocusSection.RAIL,
-                    focusRequester = railFocusRequester
-                )
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // ── EPG Grid Compact ────────────────────────────────────────
-            EpgGridCompact(
-                channels = filteredChannels,
-                gridPrograms = state.gridPrograms,
-                windowStart = windowStart,
-                windowEnd = windowEnd,
-                now = now,
-                focusedChannelId = focusedChannelId,
-                onChannelPlay = { channel ->
-                    onChannelPlay(
-                        channel.url,
-                        channel.name,
-                        channel.logo
-                    )
-                },
-                onShiftWindow = { delta ->
-                    android.util.Log.d("IptvPremiumConnected", "Shift: $delta")
-                },
-                onToggleFavorite = { channelId ->
-                    viewModel.onEvent(IptvEvent.ToggleFavorite(channelId))
-                },
-                favorites = state.favorites,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(horizontal = 12.dp),
-                enabled = !showSearch && focusSection == FocusSection.GRID,
-                onExitLeft = { focusSection = FocusSection.RAIL; railFocusRequester.requestFocus() },
-                onExitUp = { focusSection = FocusSection.RAIL; railFocusRequester.requestFocus() },
-                onChannelFocused = { channelId ->
-                    focusedChannelId = channelId
-                },
-                focusRequester = gridFocusRequester
-            )
-
-            // ── Footer ──────────────────────────────────────────────────
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .alpha(0.5f)
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = stringResource(
-                        R.string.iptv_footer_text,
-                        stringResource(R.string.iptv_navigate),
-                        stringResource(R.string.iptv_select),
-                        stringResource(R.string.iptv_hold_to_favorite),
-                        stringResource(R.string.iptv_menu_navigation)
-                    ),
-                    color = NuvioTheme.colors.TextSecondary,
-                    fontSize = 12.sp,
-                    textAlign = TextAlign.Center,
-                    maxLines = 1
-                )
-            }
-        }
-
-        // ── Search overlay ──────────────────────────────────────────────
-        if (showSearch) {
-            val searchResults = filteredChannels
-                .map { ch ->
-                    ConnectedSearchResult(
-                        channelName = ch.name,
-                        group = ch.group ?: "",
-                        currentProgram = state.gridPrograms[ch.id]
-                            ?.firstOrNull { prog -> now >= prog.startTime && now < prog.endTime }
-                            ?.title
+                // Search overlay
+                if (showSearch) {
+                    val searchResults = filteredChannels
+                        .map { ch ->
+                            ConnectedSearchResult(
+                                channelName = ch.name,
+                                group = ch.group ?: "",
+                                currentProgram = state.gridPrograms[ch.id]
+                                    ?.firstOrNull { prog -> now >= prog.startTime && now < prog.endTime }
+                                    ?.title
+                            )
+                        }
+                    SearchOverlay(
+                        searchQuery = searchQuery,
+                        onQueryChange = { searchQuery = it; focusedChannelId = null },
+                        results = searchResults,
+                        onDismiss = { showSearch = false; searchQuery = "" },
+                        onSelect = { channelName ->
+                            focusedChannelId = filteredChannels.firstOrNull { it.name == channelName }?.id
+                            showSearch = false
+                            searchQuery = ""
+                        }
                     )
                 }
-            SearchOverlay(
-                searchQuery = searchQuery,
-                onQueryChange = { searchQuery = it; focusedChannelId = null },
-                results = searchResults,
-                onDismiss = { showSearch = false; searchQuery = "" },
-                onSelect = { channelName ->
-                    focusedChannelId = filteredChannels.firstOrNull { it.name == channelName }?.id
-                    showSearch = false
-                    searchQuery = ""
-                }
-            )
+            }
         }
     }
 }
 
-// ─── Empty state (when no playlist is configured) ────────────────────────
+// ─── Mini card for channel switching ───────────────────────────────────────
+
+@Composable
+private fun MiniCardSwitch(
+    channel: TvChannel,
+    currentProgram: EpgProgram?
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.3f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .background(Color.Black.copy(alpha = 0.85f), RoundedCornerShape(14.dp))
+                .padding(horizontal = 24.dp, vertical = 16.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // Channel number placeholder
+                Box(
+                    modifier = Modifier
+                        .background(NuvioTheme.colors.Primary.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = channel.id,
+                        color = NuvioTheme.colors.Primary,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Column {
+                    Text(
+                        text = channel.name,
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (currentProgram != null) {
+                        Text(
+                            text = currentProgram.title,
+                            color = Color.White.copy(alpha = 0.6f),
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ─── Empty state ───────────────────────────────────────────────────────────
 
 @Composable
 private fun IptvPremiumEmptyState(onSetupClick: () -> Unit) {
@@ -392,7 +649,7 @@ private fun IptvPremiumEmptyState(onSetupClick: () -> Unit) {
     }
 }
 
-// ─── Data class auxiliar ──────────────────────────────────────────────────────
+// ─── Data class auxiliar ──────────────────────────────────────────────────
 
 private data class ConnectedSearchResult(
     val channelName: String,
@@ -400,7 +657,7 @@ private data class ConnectedSearchResult(
     val currentProgram: String?
 )
 
-// ─── Search Overlay (c/ resultados) ─────────────────────────────────────────
+// ─── Search Overlay ──────────────────────────────────────────────────────
 
 @Composable
 private fun SearchOverlay(
@@ -472,7 +729,6 @@ private fun SearchOverlay(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Results list
                 if (results.isNotEmpty()) {
                     LazyColumn(
                         modifier = Modifier
@@ -497,18 +753,10 @@ private fun SearchOverlay(
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
-
-                Text(
-                    text = if (results.isNotEmpty()) stringResource(R.string.iptv_channels_found, results.size)
-                           else stringResource(R.string.iptv_type_to_search),
-                    color = NuvioTheme.colors.TextSecondary.copy(alpha = 0.6f),
-                    fontSize = 13.sp
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = "↑↓ Navegar · OK Selecionar · BACK Voltar",
-                    color = NuvioTheme.colors.TextSecondary.copy(alpha = 0.3f),
-                    fontSize = 11.sp
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 320.dp)
                 )
             }
         }
@@ -522,83 +770,86 @@ private fun ConnectedSearchResultItem(
 ) {
     Card(
         onClick = onSelect,
-        shape = CardDefaults.shape(shape = RoundedCornerShape(8.dp)),
-        colors = CardDefaults.colors(
-            containerColor = NuvioTheme.colors.BackgroundCard.copy(alpha = 0.5f),
-            focusedContainerColor = NuvioTheme.colors.FocusRing.copy(alpha = 0.15f)
-        ),
         border = CardDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(1.dp, NuvioTheme.colors.FocusRing.copy(alpha = 0.5f)),
+            focusedBorder = androidx.tv.material3.Border(
+                border = androidx.compose.foundation.BorderStroke(2.dp, NuvioTheme.colors.FocusRing),
                 shape = RoundedCornerShape(8.dp)
             )
         ),
         scale = CardDefaults.scale(focusedScale = 1.02f)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .background(NuvioTheme.colors.BackgroundCard)
+                .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = result.channelName,
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (result.currentProgram != null) {
-                    Text(
-                        text = result.currentProgram,
-                        color = Color.White.copy(alpha = 0.5f),
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
             Text(
-                text = result.group,
-                color = Color.White.copy(alpha = 0.3f),
-                fontSize = 11.sp,
-                maxLines = 1
+                text = result.channelName,
+                color = Color.White,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium
             )
+            if (result.currentProgram != null) {
+                Text(
+                    text = result.currentProgram,
+                    color = Color.White.copy(alpha = 0.5f),
+                    fontSize = 12.sp,
+                    maxLines = 1
+                )
+            }
         }
     }
 }
 
-// ─── Action icon button (vector icons on video overlay) ─────────────────
+// ─── ActionIconButton ──────────────────────────────────────────────────────
 
+@OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
 @Composable
 private fun ActionIconButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     contentDescription: String,
     onClick: () -> Unit,
-    focusable: Boolean = true
+    focusable: Boolean
 ) {
-    Card(
-        onClick = onClick,
-        modifier = if (!focusable) Modifier.focusProperties { canFocus = false } else Modifier,
-        shape = CardDefaults.shape(shape = RoundedCornerShape(6.dp)),
-        colors = CardDefaults.colors(
-            containerColor = Color.Transparent,
-            focusedContainerColor = Color.White.copy(alpha = 0.12f)
-        ),
-        border = CardDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.3f)),
-                shape = RoundedCornerShape(6.dp)
+    val focusRequester = remember { FocusRequester() }
+    Box(
+        modifier = Modifier
+            .then(
+                if (focusable) Modifier.focusRequester(focusRequester).focusable()
+                else Modifier
             )
-        ),
-        scale = CardDefaults.scale(focusedScale = 1.05f)
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            modifier = Modifier.padding(6.dp),
-            tint = Color.White.copy(alpha = 0.7f)
-        )
+        Card(
+            onClick = onClick,
+            border = CardDefaults.border(
+                focusedBorder = androidx.tv.material3.Border(
+                    border = androidx.compose.foundation.BorderStroke(2.dp, NuvioTheme.colors.FocusRing),
+                    shape = RoundedCornerShape(8.dp)
+                )
+            ),
+            scale = CardDefaults.scale(focusedScale = 1.05f),
+            colors = CardDefaults.colors(
+                containerColor = Color.Black.copy(alpha = 0.4f),
+                focusedContainerColor = NuvioTheme.colors.BackgroundCard.copy(alpha = 0.5f)
+            )
+        ) {
+            Box(
+                modifier = Modifier
+                    .padding(8.dp)
+                    .size(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = contentDescription,
+                    tint = Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+        if (focusable) {
+            LaunchedEffect(Unit) { focusRequester.requestFocus() }
+        }
     }
 }

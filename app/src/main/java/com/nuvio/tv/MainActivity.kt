@@ -940,7 +940,8 @@ private fun LegacySidebarScaffold(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val drawerItemFocusRequesters = rememberDrawerItemFocusRequesters(drawerItems)
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    val showSidebar = currentRoute in rootRoutes
+    val isPlayerFullscreen = com.nuvio.tv.ui.util.LocalIsPlayerFullscreen.current
+    val showSidebar = currentRoute in rootRoutes && !isPlayerFullscreen.value
 
     LaunchedEffect(currentRoute) {
         drawerState.setValue(DrawerValue.Closed)
