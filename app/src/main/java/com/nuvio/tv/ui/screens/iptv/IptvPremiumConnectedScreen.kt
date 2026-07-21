@@ -119,6 +119,7 @@ fun IptvPremiumConnectedScreen(
     // ── State local ─────────────────────────────────────────────────────
     val railFocusRequester = remember { FocusRequester() }
     val gridFocusRequester = remember { FocusRequester() }
+    val searchBtnFocusRequester = remember { FocusRequester() }
     var focusSection by remember { mutableStateOf(FocusSection.RAIL) }
     var focusedChannelId by remember { mutableStateOf(state.focusedChannelId) }
     var searchQuery by remember { mutableStateOf("") }
@@ -135,6 +136,7 @@ fun IptvPremiumConnectedScreen(
     LaunchedEffect(focusSection) {
         when (focusSection) {
             FocusSection.RAIL -> railFocusRequester.requestFocus()
+            FocusSection.BUTTONS -> searchBtnFocusRequester.requestFocus()
             else -> {}
         }
     }
@@ -217,6 +219,19 @@ fun IptvPremiumConnectedScreen(
         }
     }
 
+    // ── Rail channels (TODOS os canais, sem filtro de categoria) ─────
+    // Enhanced rail (Opção B) — mostra todos os canais no rail
+    val railChannels = remember(state.channels) { state.channels }
+
+    // ── EPG overlay state (③) ───────────────────────────────────────
+    var isEpgOverlayVisible by remember { mutableStateOf(false) }
+    var epgOverlayFocusedGroup by remember { mutableStateOf<String?>(null) }
+
+    // ── Rail state ────────────────────────────────────────────────────
+    var isRailVisible by remember { mutableStateOf(false) }
+    var railSelectedIndex by remember { mutableIntStateOf(0) }
+    val expandedRailFocusRequester = remember { FocusRequester() }
+
     // ── HUD state (auto-hide) ──────────────────────────────────────────
     var isHudVisible by remember { mutableStateOf(true) }
     var hudTimerReset by remember { mutableStateOf(0L) }
@@ -239,13 +254,27 @@ fun IptvPremiumConnectedScreen(
 
     // ── Switch channel helper ──────────────────────────────────────────
     fun switchChannel(delta: Int) {
-        val idx = (currentChannelIdx + delta).coerceIn(0, (filteredChannels.size - 1).coerceAtLeast(0))
-        if (idx != currentChannelIdx && filteredChannels.isNotEmpty()) {
-            currentChannelIdx = idx
-            val newCh = filteredChannels[idx]
+        val maxIdx = filteredChannels.lastIndex.coerceAtLeast(0)
+        val newIdx = currentChannelIdx + delta
+
+        if (newIdx < 0 || newIdx > maxIdx) {
+            // Boundary → switch to next/previous category
+            val groups = state.groups
+            val currentGroup = state.selectedGroup
+            val currentGroupIdx = if (currentGroup == null) -1 else groups.indexOf(currentGroup)
+            val nextGroupIdx = currentGroupIdx + if (delta > 0) 1 else -1
+            if (nextGroupIdx in -1 until groups.size) {
+                val newGroup = if (nextGroupIdx == -1) null else groups[nextGroupIdx]
+                if (newGroup == null) viewModel.onEvent(IptvEvent.ClearGroup)
+                else viewModel.onEvent(IptvEvent.SelectGroup(newGroup))
+                epgOverlayFocusedGroup = newGroup
+                // currentChannelIdx auto-adjusts via LaunchedEffect(filteredChannels.size)
+            }
+        } else {
+            currentChannelIdx = newIdx
+            val newCh = filteredChannels[newIdx]
             focusedChannelId = newCh.id
             viewModel.onEvent(IptvEvent.FocusChannel(newCh.id))
-            // Show HUD + reset timer
             isHudVisible = true
             hudTimerReset = System.nanoTime()
         }
@@ -271,24 +300,75 @@ fun IptvPremiumConnectedScreen(
                     .focusRequester(expandedFocusRequester)
                     .onPreviewKeyEvent { event ->
                         if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                        when (event.key) {
-                            Key.DirectionLeft -> {
-                                switchChannel(-1)
-                                true
+                        when {
+                            // ── EPG overlay visible: let overlay handle keys ──
+                            isEpgOverlayVisible -> false
+                            // ── Rail visible: rail navigation ──
+                            isRailVisible -> when (event.key) {
+                                Key.DirectionLeft -> {
+                                    railSelectedIndex = (railSelectedIndex - 1).coerceAtLeast(0)
+                                    true
+                                }
+                                Key.DirectionRight -> {
+                                    val maxIdx = railChannels.size  // Guide(0) + channels(1..N)
+                                    railSelectedIndex = (railSelectedIndex + 1).coerceAtMost(maxIdx)
+                                    true
+                                }
+                                Key.DirectionUp -> {
+                                    isRailVisible = false
+                                    expandedFocusRequester.requestFocus()
+                                    true
+                                }
+                                Key.DirectionCenter, Key.Enter -> {
+                                    if (railSelectedIndex == 0) {
+                                        // Guide → open EPG overlay
+                                        isEpgOverlayVisible = true
+                                        true
+                                    } else {
+                                        // Select channel from rail (same group)
+                                        val chIdx = railSelectedIndex - 1
+                                        if (chIdx in railChannels.indices) {
+                                            val ch = railChannels[chIdx]
+                                            // Find position in filtered channels for player
+                                            val playerIdx = filteredChannels.indexOfFirst { it.id == ch.id }
+                                            if (playerIdx >= 0) currentChannelIdx = playerIdx
+                                            currentChannelIdx = currentChannelIdx.coerceIn(0, (filteredChannels.size - 1).coerceAtLeast(0))
+                                            focusedChannelId = ch.id
+                                            viewModel.onEvent(IptvEvent.FocusChannel(ch.id))
+                                            isRailVisible = false
+                                            expandedFocusRequester.requestFocus()
+                                            isHudVisible = true
+                                            hudTimerReset = System.nanoTime()
+                                        }
+                                        true
+                                    }
+                                }
+                                else -> false
                             }
-                            Key.DirectionRight -> {
-                                switchChannel(1)
-                                true
+                            // ── No rail: player navigation ──
+                            else -> when (event.key) {
+                                Key.DirectionLeft -> {
+                                    switchChannel(-1)
+                                    true
+                                }
+                                Key.DirectionRight -> {
+                                    switchChannel(1)
+                                    true
+                                }
+                                Key.DirectionDown -> {
+                                    isRailVisible = true
+                                    railSelectedIndex = 0
+                                    expandedRailFocusRequester.requestFocus()
+                                    true
+                                }
+                                Key.Menu -> {
+                                    // Open EPG overlay
+                                    isEpgOverlayVisible = true
+                                    android.util.Log.d("IptvEPG", "Menu pressed: groups=${state.groups.size}, channels=${state.channels.size}, gridPrograms=${state.gridPrograms.size}, selectedGroup=${state.selectedGroup}")
+                                    true
+                                }
+                                else -> false
                             }
-                            Key.DirectionDown -> {
-                                // Future: open rail
-                                true
-                            }
-                            Key.Menu -> {
-                                // Future: open EPG overlay
-                                true
-                            }
-                            else -> false
                         }
                     }
             ) {
@@ -344,11 +424,83 @@ fun IptvPremiumConnectedScreen(
                         }
                     )
                 }
+
+                // ── Canal Rail (②) — NÃO renderizar quando EPG overlay está aberto ──
+                if (isRailVisible && !isEpgOverlayVisible) {
+                    PlayerChannelRail(
+                        channels = railChannels,
+                        gridPrograms = state.gridPrograms,
+                        now = localNow,
+                        selectedIndex = railSelectedIndex,
+                        onGuideClick = {
+                            // Open EPG overlay
+                            isEpgOverlayVisible = true
+                        },
+                        onChannelClick = { channel ->
+                            val idx = railChannels.indexOfFirst { it.id == channel.id }
+                            if (idx >= 0) {
+                                val playerIdx = filteredChannels.indexOfFirst { it.id == channel.id }
+                                if (playerIdx >= 0) currentChannelIdx = playerIdx
+                                currentChannelIdx = currentChannelIdx.coerceIn(0, (filteredChannels.size - 1).coerceAtLeast(0))
+                                focusedChannelId = channel.id
+                                viewModel.onEvent(IptvEvent.FocusChannel(channel.id))
+                                isRailVisible = false
+                                expandedFocusRequester.requestFocus()
+                                isHudVisible = true
+                                hudTimerReset = System.nanoTime()
+                            }
+                        },
+                        focusRequester = expandedRailFocusRequester,
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                    )
+                }
+
+                // ── EPG Overlay (③) ──
+                if (isEpgOverlayVisible) {
+                    EpgOverlayFull(
+                        channels = state.channels,
+                        groups = state.groups,
+                        selectedGroup = epgOverlayFocusedGroup,
+                        gridPrograms = state.gridPrograms,
+                        now = localNow,
+                        onGroupSelected = { group ->
+                            epgOverlayFocusedGroup = group
+                            if (group != state.selectedGroup) {
+                                if (group == null) viewModel.onEvent(IptvEvent.ClearGroup)
+                                else viewModel.onEvent(IptvEvent.SelectGroup(group))
+                            }
+                        },
+                        onChannelSelect = { channel ->
+                            // Switch to this channel, close overlay, stay expanded
+                            focusedChannelId = channel.id
+                            val playerIdx = filteredChannels.indexOfFirst { it.id == channel.id }
+                            if (playerIdx >= 0) currentChannelIdx = playerIdx
+                            currentChannelIdx = currentChannelIdx.coerceIn(0, (filteredChannels.size - 1).coerceAtLeast(0))
+                            viewModel.onEvent(IptvEvent.FocusChannel(channel.id))
+                            isEpgOverlayVisible = false
+                            expandedFocusRequester.requestFocus()
+                            isHudVisible = true
+                            hudTimerReset = System.nanoTime()
+                        },
+                        onBack = {
+                            // BACK from EPG overlay → return to rail (or player if rail wasn't visible)
+                            isEpgOverlayVisible = false
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
 
-            // BACK to collapse
+            // BACK: close EPG overlay first, then rail, then collapse
             androidx.activity.compose.BackHandler(enabled = isExpanded) {
-                isExpanded = false
+                if (isEpgOverlayVisible) {
+                    isEpgOverlayVisible = false
+                } else if (isRailVisible) {
+                    isRailVisible = false
+                    expandedFocusRequester.requestFocus()
+                } else {
+                    isExpanded = false
+                }
             }
 
         } else {
@@ -431,25 +583,26 @@ fun IptvPremiumConnectedScreen(
                                 modifier = Modifier.fillMaxSize()
                             )
 
-                            // Top-right: search + settings
-                            Row(
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(top = 12.dp, end = 12.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                ActionIconButton(
-                                    icon = Icons.Default.Search,
-                                    contentDescription = stringResource(R.string.iptv_search_btn),
-                                    onClick = { showSearch = true },
-                                    focusable = focusSection == FocusSection.RAIL || focusSection == FocusSection.BUTTONS
-                                )
-                                ActionIconButton(
-                                    icon = Icons.Default.Settings,
-                                    contentDescription = stringResource(R.string.iptv_settings_btn),
-                                    onClick = { onSetupClick() },
-                                    focusable = focusSection == FocusSection.RAIL || focusSection == FocusSection.BUTTONS
-                                )
+                            // Top-right: search + settings (only when BUTTONS section)
+                            if (focusSection == FocusSection.BUTTONS) {
+                                Row(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(top = 12.dp, end = 12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    ActionIconButton(
+                                        icon = Icons.Default.Search,
+                                        contentDescription = stringResource(R.string.iptv_search_btn),
+                                        onClick = { showSearch = true },
+                                        focusRequester = searchBtnFocusRequester
+                                    )
+                                    ActionIconButton(
+                                        icon = Icons.Default.Settings,
+                                        contentDescription = stringResource(R.string.iptv_settings_btn),
+                                        onClick = { onSetupClick() }
+                                    )
+                                }
                             }
                         }
 
@@ -810,15 +963,10 @@ private fun ActionIconButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     contentDescription: String,
     onClick: () -> Unit,
-    focusable: Boolean
+    focusRequester: FocusRequester = remember { FocusRequester() }
 ) {
-    val focusRequester = remember { FocusRequester() }
     Box(
-        modifier = Modifier
-            .then(
-                if (focusable) Modifier.focusRequester(focusRequester).focusable()
-                else Modifier
-            )
+        modifier = Modifier.focusRequester(focusRequester).focusable()
     ) {
         Card(
             onClick = onClick,
@@ -847,9 +995,6 @@ private fun ActionIconButton(
                     modifier = Modifier.fillMaxSize()
                 )
             }
-        }
-        if (focusable) {
-            LaunchedEffect(Unit) { focusRequester.requestFocus() }
         }
     }
 }
