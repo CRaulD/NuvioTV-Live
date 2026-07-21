@@ -25,7 +25,8 @@ class IptvRepositoryImpl @Inject constructor(
     private val configDao: ConfigDao,
     private val favoriteDao: FavoriteDao,
     private val epgDao: EpgDao,
-    private val okHttpClient: OkHttpClient
+    private val okHttpClient: OkHttpClient,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context
 ) : IptvRepository {
 
     private val _channels = MutableStateFlow<List<TvChannel>>(emptyList())
@@ -45,29 +46,84 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override suspend fun refreshPlaylist() {
-        val m3uUrl = configDao.getM3uUrl() ?: return
+        var m3uUrl = configDao.getM3uUrl() ?: return
+        // Bypass m3u4u redirect chain (emulator can't follow Dropbox redirects reliably)
+        if (m3uUrl.contains("m3u4u.com")) {
+            val finalUrl = resolveM3u4uRedirect(m3uUrl)
+            if (finalUrl != null) {
+                android.util.Log.d("IptvRepo", "refreshPlaylist: resolved m3u4u redirect to $finalUrl")
+                m3uUrl = finalUrl
+            }
+        }
         android.util.Log.d("IptvRepo", "refreshPlaylist: url=$m3uUrl")
+
+        // Try network first, fall back to local cached file
+        val cacheFile = java.io.File(appContext.filesDir, "iptv_playlist_cache.m3u")
+        var loaded = false
+
         withContext(Dispatchers.IO) {
             try {
                 val request = Request.Builder().url(m3uUrl).build()
                 val response = okHttpClient.newCall(request).execute()
                 response.use { resp ->
-                    android.util.Log.d("IptvRepo", "HTTP ${resp.code} ${resp.message}")
-                    val body = resp.body?.string() ?: return@withContext
-                    android.util.Log.d("IptvRepo", "body size=${body.length}")
+                    if (resp.isSuccessful) {
+                        val body = resp.body?.string() ?: return@withContext
+                        android.util.Log.d("IptvRepo", "body size=${body.length}")
 
-                    val channels = M3uParser.parse(body)
-                    android.util.Log.d("IptvRepo", "parsed ${channels.size} channels")
-                    // Log 5 sample channel IDs to compare with EPG channelTvgId
-                    channels.take(5).forEachIndexed { i, ch ->
-                        android.util.Log.d("IptvRepo", "  m3u[$i]: id='${ch.id}' name='${ch.name}' group='${ch.group}'")
+                        val channels = M3uParser.parse(body)
+                        android.util.Log.d("IptvRepo", "parsed ${channels.size} channels via network")
+                        channels.take(5).forEachIndexed { i, ch ->
+                            android.util.Log.d("IptvRepo", "  m3u[$i]: id='${ch.id}' name='${ch.name}' group='${ch.group}'")
+                        }
+                        _channels.value = channels
+                        configDao.updateRefreshTimestamp(System.currentTimeMillis())
+                        // Cache locally
+                        cacheFile.writeText(body)
+                        loaded = true
                     }
-                    _channels.value = channels
-
-                    configDao.updateRefreshTimestamp(System.currentTimeMillis())
                 }
             } catch (e: Exception) {
-                android.util.Log.e("IptvRepo", "refreshPlaylist failed", e)
+                android.util.Log.e("IptvRepo", "network refresh failed, trying local cache", e)
+            }
+        }
+
+        if (!loaded && cacheFile.exists()) {
+            withContext(Dispatchers.IO) {
+                try {
+                    val body = cacheFile.readText()
+                    val channels = M3uParser.parse(body)
+                    android.util.Log.d("IptvRepo", "parsed ${channels.size} channels from local cache")
+                    _channels.value = channels
+                } catch (e: Exception) {
+                    android.util.Log.e("IptvRepo", "local cache parse failed", e)
+                }
+            }
+        }
+    }
+
+    /** Follow redirects from an m3u4u.com URL to resolve the final Dropbox CDN URL. */
+    private suspend fun resolveM3u4uRedirect(originalUrl: String): String? {
+        // Actually follow the redirect chain to get the fresh Dropbox CDN URL
+        return withContext(Dispatchers.IO) {
+            try {
+                val request = Request.Builder()
+                    .url(originalUrl)
+                    .head()
+                    .build()
+                // Use a custom client that doesn't auto-follow redirects
+                val client = okHttpClient.newBuilder()
+                    .followRedirects(false)
+                    .followSslRedirects(false)
+                    .build()
+                val response = client.newCall(request).execute()
+                response.use { resp ->
+                    val location = resp.header("Location")
+                    android.util.Log.d("IptvRepo", "resolveM3u4uRedirect: status=${resp.code}, location=$location")
+                    location
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("IptvRepo", "resolveM3u4uRedirect failed", e)
+                null
             }
         }
     }

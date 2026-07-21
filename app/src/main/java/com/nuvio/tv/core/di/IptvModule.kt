@@ -52,6 +52,7 @@ object IptvModule {
         configDao: ConfigDao,
         favoriteDao: FavoriteDao,
         epgDao: EpgDao,
-        okHttpClient: OkHttpClient
-    ): IptvRepository = IptvRepositoryImpl(configDao, favoriteDao, epgDao, okHttpClient)
+        okHttpClient: OkHttpClient,
+        @ApplicationContext appContext: Context
+    ): IptvRepository = IptvRepositoryImpl(configDao, favoriteDao, epgDao, okHttpClient, appContext)
 }

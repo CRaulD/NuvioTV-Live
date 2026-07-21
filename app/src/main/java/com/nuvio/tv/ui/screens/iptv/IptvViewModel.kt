@@ -191,6 +191,16 @@ class IptvViewModel @Inject constructor(
         startProgramWatcher()
         startFavoriteWatcher()
 
+        // Watch for channels to load, then load grid programs
+        viewModelScope.launch {
+            repository.getChannels().collect { channels ->
+                if (channels.isNotEmpty() && _gridPrograms.value.isEmpty()) {
+                    android.util.Log.d("IptvDiag", "channels loaded (${channels.size}), triggering loadGridPrograms")
+                    loadGridPrograms()
+                }
+            }
+        }
+
         // Start now tick (60s cadence, independent of combine)
         viewModelScope.launch {
             while (true) {
